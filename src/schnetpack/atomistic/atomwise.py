@@ -8,7 +8,7 @@ import schnetpack as spk
 import schnetpack.nn as snn
 import schnetpack.properties as properties
 
-__all__ = ["Atomwise", "DipoleMoment", "Polarizability"]
+__all__ = ["Atomwise", "DipoleMoment", "Polarizability", "Hessian"]
 
 
 class Atomwise(nn.Module):
@@ -290,4 +290,67 @@ class Polarizability(nn.Module):
         alpha = snn.scatter_add(alpha, idx_m, dim_size=maxm)
 
         inputs[self.polarizability_key] = alpha
+        return inputs
+
+
+
+class Hessian(nn.Module):
+    
+    def __init__(
+        self,
+        n_in: int,
+        n_hidden: Optional[Union[int, Sequence[int]]] = None,
+        n_layers: int = 2,
+        activation: Callable = F.silu,
+        hessian_key: str = properties.hessian,
+    ):
+        super(Hessian, self).__init__()
+        self.n_in = n_in
+        self.n_layers = n_layers
+        self.n_hidden = n_hidden
+        self.hessian_key = hessian_key
+        self.model_outputs = [hessian_key]
+
+        self.outnet = spk.nn.build_gated_equivariant_mlp(
+            n_in=n_in,
+            n_out=1,
+            n_hidden=n_hidden,
+            n_layers=n_layers,
+            activation=activation,
+            sactivation=activation,
+        )
+        
+    
+    def forward(self, inputs):
+        positions = inputs[properties.R] # 90 x 3
+        l0 = inputs["scalar_representation"] # 90 x 30
+        l1 = inputs["vector_representation"] # 90 x 3 x 30
+
+        l0, l1 = self.outnet((l0, l1)) # 90 x 1, 90 x 3 x 1
+
+        # isotropic on diagonal
+        scalar_features = l0[..., 0:1]
+        size = list(scalar_features.shape)
+        size[-1] = 27
+        scalar_features = scalar_features.expand(*size)
+        scalar_features = torch.diag_embed(scalar_features)
+
+        # anisotropic components
+        mur = l1[..., None, 0] * positions[..., None, :] # 90 x 3 x 1  *  90 x 1 x 3 = 90 x 3 x 3
+        mur_1 = mur.view(-1, 1, 9) # 90 x 1 x 9
+        mur_2 = mur.view(-1, 9, 1) # 90 x 9 x 1
+        
+        temp1 = (mur_1 * l1[..., None, 0]).view(-1, 27, 1) # 90 x 27 x 1
+        temp2 = (mur_2 * positions[..., None, :]).view(-1, 1, 27) # 90 x 1 x 27
+        
+        temp3 = temp2 * temp1 + scalar_features # 90 x 27 x 27
+        
+        idx_m = inputs[properties.idx_m]
+        maxm = int(idx_m[-1]) + 1
+        hessian = snn.scatter_add(temp3, idx_m, dim_size=maxm)
+        
+        # shape batch_size x 27 x 27 to (batch_size * 27) x 27
+        hessian = hessian.view(-1, 27)
+        
+        inputs[self.hessian_key] = hessian
         return inputs
