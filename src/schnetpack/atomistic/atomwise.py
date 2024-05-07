@@ -8,7 +8,7 @@ import schnetpack as spk
 import schnetpack.nn as snn
 import schnetpack.properties as properties
 
-__all__ = ["Atomwise", "DipoleMoment", "Polarizability", "Hessian"]
+__all__ = ["Atomwise", "DipoleMoment", "Polarizability", "Hessian", "Hessian2"]
 
 
 class Atomwise(nn.Module):
@@ -303,6 +303,7 @@ class Hessian(nn.Module):
         n_layers: int = 2,
         activation: Callable = F.silu,
         hessian_key: str = properties.hessian,
+        final_linear: bool = False,
     ):
         super(Hessian, self).__init__()
         self.n_in = n_in
@@ -310,7 +311,9 @@ class Hessian(nn.Module):
         self.n_hidden = n_hidden
         self.hessian_key = hessian_key
         self.model_outputs = [hessian_key]
-
+        self.final_linear = final_linear
+        self.final_linear_layer = nn.Linear(27 * 27, 27 * 27)
+        
         self.outnet = spk.nn.build_gated_equivariant_mlp(
             n_in=n_in,
             n_out=1,
@@ -349,8 +352,89 @@ class Hessian(nn.Module):
         maxm = int(idx_m[-1]) + 1
         hessian = snn.scatter_add(temp3, idx_m, dim_size=maxm)
         
+        if self.final_linear is not None:
+            hessian = hessian.view(-1, 27 * 27)
+            hessian = self.final_linear_layer(hessian)
+            hessian = hessian.view(-1, 27, 27)
+        
         # shape batch_size x 27 x 27 to (batch_size * 27) x 27
         hessian = hessian.view(-1, 27)
         
         inputs[self.hessian_key] = hessian
         return inputs
+
+
+class Hessian2(nn.Module):
+    
+    def __init__(
+        self,
+        n_in: int,
+        n_hidden: Optional[Union[int, Sequence[int]]] = None,
+        n_layers: int = 2,
+        activation: Callable = F.silu,
+        hessian_key: str = properties.hessian,
+    ):
+        super(Hessian2, self).__init__()
+        self.n_in = n_in
+        self.n_layers = n_layers
+        self.n_hidden = n_hidden
+        self.hessian_key = hessian_key
+        self.model_outputs = [hessian_key]
+
+        self.outnet = spk.nn.build_gated_equivariant_mlp(
+            n_in=n_in,
+            n_out=1,
+            n_hidden=n_hidden,
+            n_layers=n_layers,
+            activation=activation,
+            sactivation=activation,
+        )
+        
+        n_hessian_features = 378 # number of values in the upper right triangle of the 27 x 27 hessian matrix
+        
+        self.fnn_s = nn.Sequential(
+            nn.Linear(1, 30),
+            nn.SiLU(),
+            nn.Linear(30, 378)
+        )
+        
+        self.fnn_v = nn.Sequential(
+            nn.Linear(3, 27),
+            nn.SiLU(),
+            nn.Linear(27, 378)
+        )
+        
+        
+    
+    def forward(self, inputs):
+        positions = inputs[properties.R] # 90 x 3
+        l0 = inputs["scalar_representation"] # 90 x 30
+        l1 = inputs["vector_representation"] # 90 x 3 x 30
+
+        l0, l1 = self.outnet((l0, l1)) # 90 x 1, 90 x 3 x 1
+
+        s = self.fnn_s(l0)
+        l1 = l1.squeeze(-1)
+        v = self.fnn_v(l1)
+        
+        device = l0.device
+        
+        # Create indices for the upper right triangle
+        indices = torch.triu_indices(27, 27).to(device)
+
+        # Create an empty batch of 27x27 matrices
+        matrix_batch = torch.zeros(s.size(0), 27, 27).to(device)
+
+        # Assign values from each vector in the batch to the upper right triangle of each matrix
+        matrix_batch[:, indices[0], indices[1]] = s + v
+
+        idx_m = inputs[properties.idx_m]
+        maxm = int(idx_m[-1]) + 1
+        hessian = snn.scatter_add(matrix_batch, idx_m, dim_size=maxm)
+        hessian = hessian + hessian.transpose(-2, -1) - torch.diag_embed(torch.diagonal(hessian, dim1=-2, dim2=-1))
+        hessian = hessian.view(-1, 27)
+        
+        inputs[self.hessian_key] = hessian
+        return inputs
+
+
