@@ -48,6 +48,7 @@ def load_data():
 
 @logger
 def train(data):
+    epochs = 30
     cutoff = 5.
     n_atom_basis = 30
 
@@ -69,7 +70,7 @@ def train(data):
     nnpot = spk.model.NeuralNetworkPotential(
         representation=paiNN,
         input_modules=[pairwise_distance],
-        output_modules=[pred_energy, pred_forces, pred_hessian],
+        output_modules=[pred_energy, pred_forces, pred_hessian2],
         postprocessors=[
             trn.CastTo64(),
             trn.AddOffsets("energy", add_mean=True, add_atomrefs=False)
@@ -136,7 +137,7 @@ def train(data):
         callbacks=callbacks,
         logger=logger,
         default_root_dir=directory_training,
-        max_epochs=30, # for testing, we restrict the number of epochs
+        max_epochs=epochs,
     )
 
     trainer.fit(task, datamodule=data)
@@ -409,7 +410,7 @@ if __name__ == "__main__":
 
     data = load_data()
     
-    #train(data)
+    train(data)
     
     model = load_model()
     
