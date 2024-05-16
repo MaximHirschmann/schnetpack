@@ -1,4 +1,4 @@
-from typing import Sequence, Union, Callable, Dict, Optional
+from typing import Sequence, Union, Callable, Dict, Optional, List
 
 import torch
 import torch.nn as nn
@@ -8,7 +8,7 @@ import schnetpack as spk
 import schnetpack.nn as snn
 import schnetpack.properties as properties
 
-__all__ = ["Atomwise", "DipoleMoment", "Polarizability", "Hessian", "Hessian2"]
+__all__ = ["Atomwise", "DipoleMoment", "Polarizability", "Hessian", "Hessian2", "Hessian3", "Hessian4", "Hessian5", "Hessian6"]
 
 
 class Atomwise(nn.Module):
@@ -331,11 +331,11 @@ class Hessian(nn.Module):
         l0, l1 = self.outnet((l0, l1)) # 90 x 1, 90 x 3 x 1
 
         # isotropic on diagonal
-        scalar_features = l0[..., 0:1]
+        scalar_features = l0[..., 0:1] # 90 x 1
         size = list(scalar_features.shape)
         size[-1] = 27
-        scalar_features = scalar_features.expand(*size)
-        scalar_features = torch.diag_embed(scalar_features)
+        scalar_features = scalar_features.expand(*size) # 90 x 27
+        scalar_features = torch.diag_embed(scalar_features) # 90 x 27 x 27
 
         # anisotropic components
         mur = l1[..., None, 0] * positions[..., None, :] # 90 x 3 x 1  *  90 x 1 x 3 = 90 x 3 x 3
@@ -432,3 +432,361 @@ class Hessian2(nn.Module):
         
         inputs[self.hessian_key] = hessian
         return inputs
+
+
+class Hessian3(nn.Module):
+    def __init__(
+        self,
+        n_in: int,
+        n_hidden: Optional[Union[int, Sequence[int]]] = None,
+        n_layers: int = 2,
+        activation: Callable = F.silu,
+        hessian_key: str = properties.hessian,
+    ):
+        super(Hessian3, self).__init__()
+        self.n_in = n_in
+        self.n_layers = n_layers
+        self.n_hidden = n_hidden
+        self.hessian_key = hessian_key
+        self.model_outputs = [hessian_key]
+    
+        self.outnet = spk.nn.build_gated_equivariant_mlp(
+            n_in=n_in,
+            n_out=1,
+            n_hidden=n_hidden,
+            n_layers=n_layers,
+            activation=activation,
+            sactivation=activation,
+        )
+        
+        self.fnn_v_v = nn.Sequential(
+            nn.Linear(9, 30),
+            nn.SiLU(),
+            nn.Linear(30, 9)
+        )
+        
+        self.fnn_v_r = nn.Sequential(
+            nn.Linear(9, 30),
+            nn.SiLU(),
+            nn.Linear(30, 9)
+        )
+        
+        self.fnn_s = nn.Sequential(
+            nn.Linear(2, 30),
+            nn.SiLU(),
+            nn.Linear(30, 9)
+        )
+        
+        self.fnn_h = nn.Sequential(
+            nn.Linear(9, 30),
+            nn.SiLU(),
+            nn.Linear(30, 9)
+        )
+        
+        # self.final_linear_layer = nn.Linear(27 * 27, 27 * 27)
+        
+        
+    def forward(self, inputs):
+        positions = inputs[properties.R] # 90 x 3
+        l0 = inputs["scalar_representation"] # 90 x 30
+        l1 = inputs["vector_representation"] # 90 x 3 x 30
+
+        l0, l1 = self.outnet((l0, l1)) # 90 x 1, 90 x 3 x 1
+        
+        l1 = l1.squeeze(-1) # 90 x 3
+        
+        v_v = torch.einsum('ik,jl->ijkl', l1, l1) # 90 x 90 x 3 x 3
+        v_r = torch.einsum('ik,jl->ijkl', l1, positions) # 90 x 90 x 3 x 3
+        
+        n_atoms = inputs[properties.n_atoms]
+        hessians: List[torch.Tensor] = []
+        
+        indices = torch.cumsum(n_atoms, dim=0) - n_atoms
+        for start_idx, n_atom in zip(indices, n_atoms):
+            end_idx = start_idx + n_atom
+            v_v_i = v_v[start_idx:end_idx, start_idx:end_idx] # n_atom x n_atom x 3 x 3
+            v_r_i = v_r[start_idx:end_idx, start_idx:end_idx] # n_atom x n_atom x 3 x 3
+            
+            v_v_i = self.fnn_v_v(v_v_i.contiguous().view(-1, 9)).view(n_atom, n_atom, 3, 3) # n_atom x n_atom x 3 x 3
+            v_r_i = self.fnn_v_r(v_r_i.contiguous().view(-1, 9)).view(n_atom, n_atom, 3, 3) # n_atom x n_atom x 3 x 3
+            
+            i, j = torch.meshgrid(torch.arange(n_atom), torch.arange(n_atom), indexing='ij')
+            pairs = torch.stack((i.flatten(), j.flatten()), dim=1)
+            s_i = l0[start_idx:end_idx].squeeze(-1) # n_atom
+            s_i = s_i[pairs] # (n_atom * n_atom) x 2
+            s_i = self.fnn_s(s_i).view(n_atom, n_atom, 3, 3) # n_atom x n_atom x 3 x 3
+            
+            mini_hessian = v_v_i + v_r_i + s_i # n_atom x n_atom x 3 x 3
+            mini_hessian = self.fnn_h(mini_hessian.contiguous().view(-1, 9)).view(n_atom, n_atom, 3, 3) # n_atom x n_atom x 3 x 3
+            mini_hessian = mini_hessian.permute(0, 2, 1, 3).reshape(n_atom * 3, n_atom * 3) # (3 * n_atom) x (3 * n_atom)
+            
+            hessians.append(mini_hessian)
+            
+        # ethanol specific reshape
+        hessians = torch.stack(hessians, dim = 0).view(-1, 27)
+        
+        inputs[self.hessian_key] = hessians
+        return inputs
+    
+class Hessian4(nn.Module):
+    def __init__(
+        self,
+        n_in: int,
+        n_hidden: Optional[Union[int, Sequence[int]]] = None,
+        n_layers: int = 2,
+        activation: Callable = F.silu,
+        hessian_key: str = properties.hessian,
+    ):
+        super(Hessian4, self).__init__()
+        self.n_in = n_in
+        self.n_layers = n_layers
+        self.n_hidden = n_hidden
+        self.hessian_key = hessian_key
+        self.model_outputs = [hessian_key]
+    
+        self.outnet = spk.nn.build_gated_equivariant_mlp(
+            n_in=n_in,
+            n_out=1,
+            n_hidden=n_hidden,
+            n_layers=n_layers,
+            activation=activation,
+            sactivation=activation,
+        )
+        
+        self.fnn = nn.Sequential(
+            nn.Linear(3 + 3 + 3 + 3 + 1 + 1, 30),
+            nn.SiLU(),
+            nn.Linear(30, 9)
+        )
+        
+        
+    def forward(self, inputs):
+        positions = inputs[properties.R] # 90 x 3
+        l0 = inputs["scalar_representation"] # 90 x 30
+        l1 = inputs["vector_representation"] # 90 x 3 x 30
+
+        l0, l1 = self.outnet((l0, l1)) # 90 x 1, 90 x 3 x 1
+        
+        l1 = l1.squeeze(-1)
+        
+        
+        n_atoms = inputs[properties.n_atoms]
+        hessians: List[torch.Tensor] = []
+        
+        indices = torch.cumsum(n_atoms, dim=0) - n_atoms
+        for start_idx, n_atom in zip(indices, n_atoms):
+            end_idx = start_idx + n_atom
+            
+            i, j = torch.meshgrid(torch.arange(n_atom), torch.arange(n_atom), indexing='ij')
+            pairs = torch.stack((i.flatten(), j.flatten()), dim=1)
+            
+            s_i = l0[start_idx:end_idx].squeeze(-1) # n_atom
+            s_i = s_i[pairs] # (n_atom * n_atom) x 2
+            
+            v_i = l1[start_idx:end_idx] # n_atom x 3
+            v_i = v_i[pairs] # (n_atom * n_atom) x 2 x 3 
+            v_i = v_i.view(-1, 6) # (n_atom * n_atom) x 6
+            
+            r_i = positions[start_idx:end_idx] # n_atom x 3
+            r_i = r_i[pairs] # (n_atom * n_atom) x 2 x 3
+            r_i = r_i.view(-1, 6) # (n_atom * n_atom) x 6
+            
+            # concatenate
+            mini_hessian = torch.cat((s_i, v_i, r_i), dim=1) # (n_atom * n_atom) x 14
+            mini_hessian = self.fnn(mini_hessian).view(n_atom, n_atom, 3, 3) # n_atom x n_atom x 3 x 3
+            mini_hessian = mini_hessian.permute(0, 2, 1, 3).reshape(n_atom * 3, n_atom * 3) # (3 * n_atom) x (3 * n_atom)
+            
+            hessians.append(mini_hessian)
+            
+        # ethanol specific reshape
+        hessians = torch.stack(hessians, dim = 0).view(-1, 27)
+        
+        inputs[self.hessian_key] = hessians
+        return inputs
+    
+    
+
+class Hessian5(nn.Module):
+    def __init__(
+        self,
+        n_in: int,
+        n_hidden: Optional[Union[int, Sequence[int]]] = None,
+        n_layers: int = 2,
+        activation: Callable = F.silu,
+        hessian_key: str = properties.hessian,
+    ):
+        super(Hessian5, self).__init__()
+        self.n_in = n_in
+        self.n_layers = n_layers
+        self.n_hidden = n_hidden
+        self.hessian_key = hessian_key
+        self.model_outputs = [hessian_key]
+    
+        self.outnet = spk.nn.build_gated_equivariant_mlp(
+            n_in=n_in,
+            n_out=1,
+            n_hidden=n_hidden,
+            n_layers=n_layers,
+            activation=activation,
+            sactivation=activation,
+        )
+        self.fnn_v_v = nn.Sequential(
+            nn.Linear(9, 30),
+            nn.SiLU(),
+            nn.Linear(30, 9)
+        )
+        
+        self.fnn_v_r = nn.Sequential(
+            nn.Linear(9, 30),
+            nn.SiLU(),
+            nn.Linear(30, 9)
+        )
+        
+        self.fnn_s = nn.Sequential(
+            nn.Linear(2, 30),
+            nn.SiLU(),
+            nn.Linear(30, 9)
+        )
+        
+        self.fnn_h = nn.Sequential(
+            nn.Linear(9, 30),
+            nn.SiLU(),
+            nn.Linear(30, 9)
+        )
+        
+        
+    def forward(self, inputs):
+        positions = inputs[properties.R] # 90 x 3
+        l0 = inputs["scalar_representation"] # 90 x 30
+        l1 = inputs["vector_representation"] # 90 x 3 x 30
+
+        l0, l1 = self.outnet((l0, l1)) # 90 x 1, 90 x 3 x 1
+        
+        l1 = l1.squeeze(-1) # 90 x 3
+        
+        n_atoms = inputs[properties.n_atoms]
+        hessians: List[torch.Tensor] = []
+        
+        indices = torch.cumsum(n_atoms, dim=0) - n_atoms
+        for start_idx, n_atom in zip(indices, n_atoms):
+            end_idx = start_idx + n_atom
+            
+            v_v_i = torch.einsum('ik,jl->ijkl', l1[start_idx:end_idx], l1[start_idx:end_idx]) # n_atom x n_atom x 3 x 3
+            v_r_i = torch.einsum('ik,jl->ijkl', l1[start_idx:end_idx], positions[start_idx:end_idx]) # n_atom x n_atom x 3 x 3
+            
+            v_v_i = self.fnn_v_v(v_v_i.contiguous().view(-1, 9)).view(n_atom, n_atom, 3, 3) # n_atom x n_atom x 3 x 3
+            v_r_i = self.fnn_v_r(v_r_i.contiguous().view(-1, 9)).view(n_atom, n_atom, 3, 3) # n_atom x n_atom x 3 x 3
+            
+            i, j = torch.meshgrid(torch.arange(n_atom), torch.arange(n_atom), indexing='ij')
+            pairs = torch.stack((i.flatten(), j.flatten()), dim=1)
+            s_i = l0[start_idx:end_idx].squeeze(-1) # n_atom
+            s_i = s_i[pairs] # (n_atom * n_atom) x 2
+            s_i = self.fnn_s(s_i).view(n_atom, n_atom, 3, 3) # n_atom x n_atom x 3 x 3
+            
+            mini_hessian = v_v_i + v_r_i + s_i # n_atom x n_atom x 3 x 3
+            mini_hessian = self.fnn_h(mini_hessian.contiguous().view(-1, 9)).view(n_atom, n_atom, 3, 3) # n_atom x n_atom x 3 x 3
+            mini_hessian = mini_hessian.permute(0, 2, 1, 3).reshape(n_atom * 3, n_atom * 3) # (3 * n_atom) x (3 * n_atom)
+            
+            hessians.append(mini_hessian)
+            
+        # ethanol specific reshape
+        hessians = torch.stack(hessians, dim = 0).view(-1, 27)
+        
+        inputs[self.hessian_key] = hessians
+        return inputs
+    
+class Hessian6(nn.Module):
+    def __init__(
+        self,
+        n_in: int,
+        n_hidden: Optional[Union[int, Sequence[int]]] = None,
+        n_layers: int = 2,
+        activation: Callable = F.silu,
+        hessian_key: str = properties.hessian,
+    ):
+        super(Hessian6, self).__init__()
+        self.n_in = n_in
+        self.n_layers = n_layers
+        self.n_hidden = n_hidden
+        self.hessian_key = hessian_key
+        self.model_outputs = [hessian_key]
+    
+        self.outnet = spk.nn.build_gated_equivariant_mlp(
+            n_in=n_in,
+            n_out=1,
+            n_hidden=n_hidden,
+            n_layers=n_layers,
+            activation=activation,
+            sactivation=activation,
+        )
+        self.fnn_v_v = nn.Sequential(
+            nn.Linear(9, 30),
+            nn.SiLU(),
+            nn.Linear(30, 9)
+        )
+        
+        self.fnn_v_r = nn.Sequential(
+            nn.Linear(9, 30),
+            nn.SiLU(),
+            nn.Linear(30, 9)
+        )
+        
+        self.fnn_s = nn.Sequential(
+            nn.Linear(2, 30),
+            nn.SiLU(),
+            nn.Linear(30, 9)
+        )
+        
+        self.fnn_h = nn.Sequential(
+            nn.Linear(9, 30),
+            nn.SiLU(),
+            nn.Linear(30, 9)
+        )
+        
+        self.fnn_final = nn.Sequential(
+            nn.Linear(27 * 27, 27 * 27)
+        )
+        
+        
+    def forward(self, inputs):
+        positions = inputs[properties.R] # 90 x 3
+        l0 = inputs["scalar_representation"] # 90 x 30
+        l1 = inputs["vector_representation"] # 90 x 3 x 30
+
+        l0, l1 = self.outnet((l0, l1)) # 90 x 1, 90 x 3 x 1
+        
+        l1 = l1.squeeze(-1) # 90 x 3
+        
+        n_atoms = inputs[properties.n_atoms]
+        hessians: List[torch.Tensor] = []
+        
+        indices = torch.cumsum(n_atoms, dim=0) - n_atoms
+        for start_idx, n_atom in zip(indices, n_atoms):
+            end_idx = start_idx + n_atom
+            
+            v_v_i = torch.einsum('ik,jl->ijkl', l1[start_idx:end_idx], l1[start_idx:end_idx]) # n_atom x n_atom x 3 x 3
+            v_r_i = torch.einsum('ik,jl->ijkl', l1[start_idx:end_idx], positions[start_idx:end_idx]) # n_atom x n_atom x 3 x 3
+            
+            v_v_i = self.fnn_v_v(v_v_i.contiguous().view(-1, 9)).view(n_atom, n_atom, 3, 3) # n_atom x n_atom x 3 x 3
+            v_r_i = self.fnn_v_r(v_r_i.contiguous().view(-1, 9)).view(n_atom, n_atom, 3, 3) # n_atom x n_atom x 3 x 3
+            
+            i, j = torch.meshgrid(torch.arange(n_atom), torch.arange(n_atom), indexing='ij')
+            pairs = torch.stack((i.flatten(), j.flatten()), dim=1)
+            s_i = l0[start_idx:end_idx].squeeze(-1) # n_atom
+            s_i = s_i[pairs] # (n_atom * n_atom) x 2
+            s_i = self.fnn_s(s_i).view(n_atom, n_atom, 3, 3) # n_atom x n_atom x 3 x 3
+            
+            mini_hessian = v_v_i + v_r_i + s_i # n_atom x n_atom x 3 x 3
+            mini_hessian = self.fnn_h(mini_hessian.contiguous().view(-1, 9)).view(n_atom, n_atom, 3, 3) # n_atom x n_atom x 3 x 3
+            mini_hessian = mini_hessian.permute(0, 2, 1, 3).reshape(n_atom * 3, n_atom * 3) # (3 * n_atom) x (3 * n_atom)
+            
+            mini_hessian = self.fnn_final(mini_hessian.view(-1, 27 * 27)).view(n_atom * 3, n_atom * 3)
+            
+            hessians.append(mini_hessian)
+            
+        # ethanol specific reshape
+        hessians = torch.stack(hessians, dim = 0).view(-1, 27)
+        
+        inputs[self.hessian_key] = hessians
+        return inputs
+    
