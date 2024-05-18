@@ -50,36 +50,29 @@ def create_databases():
 
     # initialize new db dataset
     new_dataset = ASEAtomsData.create(
-        os.path.join(raw_data_dir, "data.db"),
+        database_file,
         distance_unit="Ang",
         property_unit_dict={"energy": "Hartree",
                             "forces": "Hartree/Bohr",
-                            "hessian": "Hartree/Bohr/Bohr"},
+                            "hessian": "Hartree/Bohr/Bohr",
+                            "newton_step": "Bohr"},
     )
-    new_dataset_no_hessian = ASEAtomsData.create(
-        os.path.join(raw_data_dir, "data-no-hessian.db"),
-        distance_unit="Ang",
-        property_unit_dict={"energy": "Hartree",
-                            "forces": "Hartree/Bohr",
-                            #"hessian": "Hartree/Bohr/Bohr"
-                            },
-    )
-
 
     hessian_determinants = []
     for sample_idx, at in zip(indices, ats):
         print(sample_idx)
         energies, forces, hessians = get_targets(raw_data_dir, sample_idx)
 
+        forces_flattened = forces.flatten()
+        newton_step = -np.linalg.solve(hessians, forces_flattened).reshape(9, 3)
+
         properties = {
             "energy": energies[None],
             "forces": forces,
+            "hessian": hessians,
+            "newton_step": newton_step
         }
 
-        new_dataset_no_hessian.add_systems([properties], [at])
-        
-        properties["hessian"] = hessians
-        
         new_dataset.add_systems([properties], [at])
         
     
@@ -87,36 +80,6 @@ def create_databases():
 data_directory = os.getcwd() + "\\maxim\\data\\"
 raw_data_dir = data_directory + "ene_grad_hess_1000eth"
 rmd17_data_path = data_directory + "rMD17\\rMD17.db"
+database_file = data_directory + "custom_database.db"
 
-indices = get_indices(raw_data_dir)
-
-hessians = []
-inv_hessians = []
-
-n = 5
-for i in range(n):
-    print(i)
-    idx = indices[i]
-    energies, forces, hessian = get_targets(raw_data_dir, idx)
-    inv_hessian = np.linalg.inv(hessian)
-    
-    hessians.append(hessian)
-    inv_hessians.append(inv_hessian)
-    
-    
-# plot and compare hessians
-fig, axs = plt.subplots(n, 2, figsize=(2, 20))
-
-axs[0, 0].set_title("Hessian")
-axs[0, 1].set_title("Inverse Hessian")
-
-for i in range(n):
-    axs[i, 0].imshow(hessians[i])
-    axs[i, 1].imshow(inv_hessians[i])
-
-    axs[i, 0].get_xaxis().set_ticks([])
-    axs[i, 0].get_yaxis().set_ticks([])
-    axs[i, 1].get_xaxis().set_ticks([])
-    axs[i, 1].get_yaxis().set_ticks([])
-
-plt.show()
+create_databases()

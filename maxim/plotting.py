@@ -177,3 +177,67 @@ def plot_forces_and_hessians(structure, results, showDiff=True):
     
     # plt.tight_layout()
     plt.show()
+
+def plot(structure, 
+         results, 
+         showDiff=True,
+         plotForces=True,
+         plotNewtonStep=True,
+         plotHessians=True,
+         plotInverseHessians=True):
+    
+    def add_subplot(axs, row, col, data, title, vmin=None, vmax=None):
+        im = axs[row, col].imshow(data, cmap="viridis", vmin=vmin, vmax=vmax)
+        axs[row, col].set_title(title)
+        plt.colorbar(im, ax=axs[row, col])
+
+    def prepare_data(true_data, pred_data):
+        true_data, pred_data = true_data.numpy(), pred_data.detach().numpy()
+        return true_data, pred_data, min(true_data.min(), pred_data.min()), max(true_data.max(), pred_data.max())
+
+    rows = sum([plotForces, plotNewtonStep, plotHessians, plotInverseHessians])
+    columns = 2 + showDiff
+
+    fig, axs = plt.subplots(rows, columns, figsize=(10, 5*rows))
+    
+    row = 0
+    if plotForces:
+        forces_true, forces_pred, vmin_force, vmax_force = prepare_data(structure["forces"], results["forces"])
+        forces_true, forces_pred = forces_true.reshape(3, 9), forces_pred.reshape(3, 9)
+        
+        add_subplot(axs, row, 0, forces_true, "Predicted forces", vmin_force, vmax_force)
+        add_subplot(axs, row, 1, forces_pred, "True forces", vmin_force, vmax_force)
+        if showDiff:
+            add_subplot(axs, row, 2, forces_true - forces_pred, "Difference", vmin_force, vmax_force)
+        row += 1
+
+    if plotNewtonStep:
+        true_newton, pred_newton, vmin_newton, vmax_newton = prepare_data(structure["newton_step"], results["newton_step"])
+        true_newton, pred_newton = true_newton.reshape(3, 9), pred_newton.reshape(3, 9)
+        
+        add_subplot(axs, row, 0, pred_newton, "Predicted Newton step", vmin_newton, vmax_newton)
+        add_subplot(axs, row, 1, true_newton, "True Newton step", vmin_newton, vmax_newton)
+        if showDiff:
+            add_subplot(axs, row, 2, true_newton - pred_newton, "Difference", vmin_newton, vmax_newton)
+        row += 1
+
+    if plotHessians:
+        true_hessian, pred_hessian, vmin_hessian, vmax_hessian = prepare_data(structure["hessian"], results["hessian"])
+
+        add_subplot(axs, row, 0, pred_hessian, "Predicted hessian", vmin_hessian, vmax_hessian)
+        add_subplot(axs, row, 1, true_hessian, "True hessian", vmin_hessian, vmax_hessian)
+        if showDiff:
+            add_subplot(axs, row, 2, true_hessian - pred_hessian, "Difference", vmin_hessian, vmax_hessian)
+        row += 1
+
+    if plotInverseHessians:
+        true_inv, pred_inv = np.linalg.inv(true_hessian), np.linalg.inv(pred_hessian)
+
+        add_subplot(axs, row, 0, pred_inv, "Predicted inverse hessian")
+        add_subplot(axs, row, 1, true_inv, "True inverse hessian")
+        if showDiff:
+            add_subplot(axs, row, 2, true_inv - pred_inv, "Difference")
+        row += 1
+
+    plt.tight_layout()
+    plt.show()

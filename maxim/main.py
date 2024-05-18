@@ -2,7 +2,7 @@
 import sys
 import os 
 from time import time
-from plotting import plot_forces, plot_hessian, plot_hessians, plot_forces_and_hessians
+from plotting import plot_forces, plot_hessian, plot_hessians, plot_forces_and_hessians, plot
     
 
 def logger(func):
@@ -17,7 +17,8 @@ def logger(func):
 
 @logger
 def load_data():
-    filepath_hessian_db = os.path.join(os.getcwd(), 'maxim\\data\\ene_grad_hess_1000eth\\data.db')
+    # filepath_hessian_db = os.path.join(os.getcwd(), 'maxim\\data\\ene_grad_hess_1000eth\\data.db')
+    filepath_hessian_db = os.path.join(os.getcwd(), "maxim\\data\\custom_database.db")
 
     hessianData = spk.data.AtomsDataModule(
         filepath_hessian_db, 
@@ -49,7 +50,7 @@ def load_data():
 
 @logger
 def train(data):
-    epochs = 25
+    epochs = 5
     cutoff = 5.
     n_atom_basis = 30
 
@@ -71,11 +72,13 @@ def train(data):
     pred_hessian4 = spk.atomistic.Hessian4(n_in = n_atom_basis, hessian_key = "hessian")
     pred_hessian5 = spk.atomistic.Hessian5(n_in = n_atom_basis, hessian_key = "hessian")
     pred_hessian6 = spk.atomistic.Hessian6(n_in = n_atom_basis, hessian_key = "hessian")
+    pred_newton_step = spk.atomistic.NewtonStep(n_in = n_atom_basis, newton_step_key = "newton_step")
+
 
     nnpot = spk.model.NeuralNetworkPotential(
         representation=paiNN,
         input_modules=[pairwise_distance],
-        output_modules=[pred_energy, pred_forces, pred_hessian6],
+        output_modules=[pred_energy, pred_forces, pred_hessian3, pred_newton_step],
         postprocessors=[
             trn.CastTo64(),
             trn.AddOffsets("energy", add_mean=True, add_atomrefs=False)
@@ -85,7 +88,7 @@ def train(data):
     output_energy = spk.task.ModelOutput(
         name="energy",
         loss_fn=torch.nn.MSELoss(),
-        loss_weight=0.01,
+        loss_weight=0.2,
         metrics={
             "MAE": torchmetrics.MeanAbsoluteError()
         }
@@ -94,7 +97,7 @@ def train(data):
     output_forces = spk.task.ModelOutput(
         name="forces",
         loss_fn=torch.nn.MSELoss(),
-        loss_weight=0.09,
+        loss_weight=0.4,
         metrics={
             "MAE": torchmetrics.MeanAbsoluteError()
         }
@@ -112,7 +115,16 @@ def train(data):
     output_hessian = spk.task.ModelOutput(
         name="hessian",
         loss_fn=torch.nn.MSELoss(),
-        loss_weight=0.9,
+        loss_weight=0,
+        metrics={
+            "MAE": torchmetrics.MeanAbsoluteError()
+        }
+    )
+
+    output_newton_step = spk.task.ModelOutput(
+        name="newton_step",
+        loss_fn=torch.nn.MSELoss(),
+        loss_weight=0.4,
         metrics={
             "MAE": torchmetrics.MeanAbsoluteError()
         }
@@ -121,7 +133,7 @@ def train(data):
 
     task = spk.task.AtomisticTask(
         model=nnpot,
-        outputs=[output_energy, output_forces, output_hessian],
+        outputs=[output_energy, output_forces, output_hessian, output_newton_step],
         optimizer_cls=torch.optim.AdamW,
         optimizer_args={"lr": 1e-4}
     )
@@ -159,7 +171,12 @@ def load_model():
 
 
 @logger
-def evaluate_model(model, data, to_plot_forces = False, to_plot_hessian = False, compare_newton_steps = False):
+def evaluate_model(model, data, 
+        showDiff=True,
+        plotForces=True,
+        plotNewtonStep=True,
+        plotHessians=True,
+        plotInverseHessians=True):
     # set up converter
     converter = spk.interfaces.AtomsConverter(
         neighbor_list=trn.ASENeighborList(cutoff=5.0), dtype=torch.float32, device=device
@@ -189,16 +206,8 @@ def evaluate_model(model, data, to_plot_forces = False, to_plot_hessian = False,
         results["forces"] = results["forces"].to("cpu")
         
         if i < 5:
-            if to_plot_forces and to_plot_hessian:
-                plot_forces_and_hessians(structure, results)
-            elif to_plot_forces:
-                plot_forces(structure["forces"], results["forces"])
-            elif to_plot_hessian:
-                plot_hessians(structure["hessian"], results["hessian"])
-            
-            if compare_newton_steps:
-                compare_newton_step(structure, results)
-        
+            plot(structure, results, showDiff, plotForces, plotNewtonStep, plotHessians, plotInverseHessians)
+
         hessian_loss = output_hessian.calculate_loss(structure, results)
         
         loss += hessian_loss.item()
@@ -207,28 +216,6 @@ def evaluate_model(model, data, to_plot_forces = False, to_plot_hessian = False,
     print(f"Test loss: {loss}")
     
     return loss
-
-def compare_newton_step(structure, results):
-    hessian_true = structure["hessian"].numpy()
-    hessian_pred = results["hessian"].detach().numpy()
-    forces_true = structure["forces"].numpy()
-    forces_pred = results["forces"].detach().numpy()
-    forces_true = forces_true.reshape(27)
-    forces_pred = forces_pred.reshape(27)
-    
-    newton_step_true = -np.linalg.solve(hessian_true, forces_true)
-    newton_step_pred = -np.linalg.solve(hessian_pred, forces_pred)
-    
-    # normalize
-    # newton_step_true = newton_step_true / np.linalg.norm(newton_step_true)
-    # newton_step_pred = newton_step_pred / np.linalg.norm(newton_step_pred)
-    
-    print(f"True newton step: {newton_step_true}")
-    print(f"Predicted newton step: {newton_step_pred}")
-    print(f"Norm of difference: {np.linalg.norm(newton_step_true - newton_step_pred)}")
-    print(f"Scalar product: {np.dot(newton_step_true, newton_step_pred) / (np.linalg.norm(newton_step_true) * np.linalg.norm(newton_step_pred))}")
-    print("")
-    
 
 
 
@@ -262,7 +249,7 @@ if __name__ == "__main__":
     import numpy as np
     
 
-    device = "cuda"
+    device = "cpu"
 
     data = load_data()
     
@@ -271,9 +258,11 @@ if __name__ == "__main__":
     model = load_model()
     
     loss = evaluate_model(model, data, 
-                          to_plot_forces=True,
-                          to_plot_hessian=True, 
-                          compare_newton_steps=False
-                          )
+            showDiff=True,
+            plotForces=True,
+            plotNewtonStep=True,
+            plotHessians=False,
+            plotInverseHessians=False
+        )
     
     # calculate_average_hessian(data)
