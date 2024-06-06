@@ -2,7 +2,7 @@
 import sys
 import os 
 from time import time
-from plotting import plot_forces, plot_hessian, plot_hessians, plot_forces_and_hessians, plot
+from plotting import plot_hessian, plot, plot_positions
     
 
 def logger(func):
@@ -14,6 +14,8 @@ def logger(func):
         return result
     return wrapper
 
+def get_training_directory():
+    return os.path.join(os.getcwd(), "training\\logs")
 
 @logger
 def load_data():
@@ -25,7 +27,9 @@ def load_data():
         distance_unit="Ang",
         property_units={"energy": "Hartree",
                         "forces": "Hartree/Bohr",
-                        "hessian": "Hartree/Bohr/Bohr"
+                        "hessian": "Hartree/Bohr/Bohr",
+                        "newton_step": "Bohr",
+                        "best_direction": "Hartree/Bohr"
                         },
         batch_size=10,
         
@@ -50,7 +54,7 @@ def load_data():
 
 @logger
 def train(data):
-    epochs = 5
+    epochs = 50
     cutoff = 5.
     n_atom_basis = 30
 
@@ -72,13 +76,20 @@ def train(data):
     pred_hessian4 = spk.atomistic.Hessian4(n_in = n_atom_basis, hessian_key = "hessian")
     pred_hessian5 = spk.atomistic.Hessian5(n_in = n_atom_basis, hessian_key = "hessian")
     pred_hessian6 = spk.atomistic.Hessian6(n_in = n_atom_basis, hessian_key = "hessian")
-    pred_newton_step = spk.atomistic.NewtonStep(n_in = n_atom_basis, newton_step_key = "newton_step")
+    #pred_newton_step = spk.atomistic.NewtonStep(n_in = n_atom_basis, newton_step_key = "newton_step")
+    pred_best_direction = spk.atomistic.BestDirection(n_in = n_atom_basis, best_direction_key = "best_direction")
 
 
     nnpot = spk.model.NeuralNetworkPotential(
         representation=paiNN,
         input_modules=[pairwise_distance],
-        output_modules=[pred_energy, pred_forces, pred_hessian3, pred_newton_step],
+        output_modules=[
+            pred_energy,
+            pred_forces, 
+            # pred_hessian3, 
+            # pred_newton_step
+            pred_best_direction,
+            ],
         postprocessors=[
             trn.CastTo64(),
             trn.AddOffsets("energy", add_mean=True, add_atomrefs=False)
@@ -130,18 +141,31 @@ def train(data):
         }
     )
 
+    output_best_direction = spk.task.ModelOutput(
+        name="best_direction",
+        loss_fn=torch.nn.MSELoss(),
+        loss_weight=0.4,
+        metrics = {
+            "MAE": torchmetrics.MeanAbsoluteError()
+        }
+    )
 
     task = spk.task.AtomisticTask(
         model=nnpot,
-        outputs=[output_energy, output_forces, output_hessian, output_newton_step],
+        outputs=[
+            output_energy, 
+            output_forces, 
+            # output_hessian, 
+            # output_newton_step
+            output_best_direction,
+            ],
         optimizer_cls=torch.optim.AdamW,
         optimizer_args={"lr": 1e-4}
     )
 
-    directory_training = os.path.join(os.getcwd(), "maxim\\data\\ene_grad_hess_1000eth")
-    filepath_model = os.path.join(directory_training, "best_inference_model")
+    filepath_model = os.path.join(get_training_directory(), "best_inference_model")
 
-    logger = pl.loggers.TensorBoardLogger(save_dir=directory_training)
+    logger = pl.loggers.TensorBoardLogger(save_dir=get_training_directory())
     callbacks = [
         spk.train.ModelCheckpoint(
             model_path=filepath_model,
@@ -153,7 +177,7 @@ def train(data):
     trainer = pl.Trainer(
         callbacks=callbacks,
         logger=logger,
-        default_root_dir=directory_training,
+        default_root_dir=get_training_directory(),
         max_epochs=epochs,
     )
 
@@ -161,8 +185,7 @@ def train(data):
 
 @logger
 def load_model():
-    directory_training = os.path.join(os.getcwd(), "maxim\\data\\ene_grad_hess_1000eth")
-    filepath_model = os.path.join(directory_training, "best_inference_model")
+    filepath_model = os.path.join(get_training_directory(), "best_inference_model")
 
     # load model
     best_model = torch.load(filepath_model, map_location=device)
@@ -176,23 +199,14 @@ def evaluate_model(model, data,
         plotForces=True,
         plotNewtonStep=True,
         plotHessians=True,
-        plotInverseHessians=True):
+        plotInverseHessians=True,
+        plotBestDirection=True):
     # set up converter
     converter = spk.interfaces.AtomsConverter(
         neighbor_list=trn.ASENeighborList(cutoff=5.0), dtype=torch.float32, device=device
     )
 
-    # create atoms object from dataset
-    output_hessian = spk.task.ModelOutput(
-        name="hessian",
-        loss_fn=torch.nn.MSELoss(),
-        loss_weight=1,
-        metrics={
-            "MAE": torchmetrics.MeanAbsoluteError()
-        }
-    )
     
-    loss = 0
     for i in range(len(data.test_dataset)):
         structure = data.test_dataset[i]
         atoms = Atoms(
@@ -202,21 +216,8 @@ def evaluate_model(model, data,
         inputs = converter(atoms)
         results = model(inputs)
         
-        results["hessian"] = results["hessian"].to("cpu")
-        results["forces"] = results["forces"].to("cpu")
-        
         if i < 5:
-            plot(structure, results, showDiff, plotForces, plotNewtonStep, plotHessians, plotInverseHessians)
-
-        hessian_loss = output_hessian.calculate_loss(structure, results)
-        
-        loss += hessian_loss.item()
-    loss = loss/len(data.test_dataset)
-    
-    print(f"Test loss: {loss}")
-    
-    return loss
-
+            plot(structure, results, showDiff, plotForces, plotNewtonStep, plotHessians, plotInverseHessians, plotBestDirection)
 
 
 @logger
@@ -225,6 +226,20 @@ def calculate_average_hessian(data):
     
     for i in range(len(data.dataset)):
         hessian += data.dataset[i]["hessian"]
+    
+    hessian = hessian/len(data.dataset)
+    
+    plot_hessian(hessian)
+    
+
+@logger
+def calculate_average_newton_step(data):
+    hessian = torch.zeros(9, 3)
+    
+    for i in range(len(data.dataset)):
+        datapoint = data.dataset[i]
+        hessian += datapoint["newton_step"]
+        plot_positions(datapoint)
     
     hessian = hessian/len(data.dataset)
     
@@ -246,23 +261,24 @@ if __name__ == "__main__":
     import pytorch_lightning as pl
     from ase import Atoms
     
-    import numpy as np
-    
 
-    device = "cpu"
+    device = "cuda" if torch.cuda.is_available() else "cpu"
 
     data = load_data()
     
     train(data)
     
     model = load_model()
-    
+     
     loss = evaluate_model(model, data, 
             showDiff=True,
             plotForces=True,
-            plotNewtonStep=True,
+            plotNewtonStep=False,
             plotHessians=False,
-            plotInverseHessians=False
+            plotInverseHessians=False,
+            plotBestDirection=True
         )
     
     # calculate_average_hessian(data)
+    
+    # calculate_average_newton_step(data)

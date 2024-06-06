@@ -8,7 +8,7 @@ import schnetpack as spk
 import schnetpack.nn as snn
 import schnetpack.properties as properties
 
-__all__ = ["Atomwise", "DipoleMoment", "Polarizability", "Hessian", "Hessian2", "Hessian3", "Hessian4", "Hessian5", "Hessian6", "NewtonStep"]
+__all__ = ["Atomwise", "DipoleMoment", "Polarizability", "Hessian", "Hessian2", "Hessian3", "Hessian4", "Hessian5", "Hessian6", "NewtonStep", "BestDirection"]
 
 
 class Atomwise(nn.Module):
@@ -815,7 +815,13 @@ class NewtonStep(nn.Module):
             activation=activation,
             sactivation=activation,
         )
-
+        
+        self.dnn = nn.Sequential(
+            nn.Linear(27, 30),
+            nn.SiLU(),
+            nn.Linear(30, 27)
+        )
+        
     def forward(self, inputs):
         positions = inputs[properties.R] # 90 x 3
         l0 = inputs["scalar_representation"] # 90 x 30
@@ -825,5 +831,54 @@ class NewtonStep(nn.Module):
         
         l1 = l1.squeeze(-1) # 90 x 3
         
-        inputs[self.newton_step_key] = l1
+        newton = self.dnn(l1.view(10, 9, 3).view(-1, 27)).view(-1, 3) # 90 x 3
+        
+        inputs[self.newton_step_key] = newton
+        return inputs
+
+
+class BestDirection(nn.Module):
+    def __init__(
+        self,
+        n_in: int,
+        n_hidden: Optional[Union[int, Sequence[int]]] = None,
+        n_layers: int = 2,
+        activation: Callable = F.silu,
+        best_direction_key: str = "best_direction",
+    ):
+        super(BestDirection, self).__init__()
+        self.n_in = n_in
+        self.n_layers = n_layers
+        self.n_hidden = n_hidden
+        self.best_direction_key = best_direction_key
+        self.model_outputs = [best_direction_key]
+    
+        self.outnet = spk.nn.build_gated_equivariant_mlp(
+            n_in=n_in,
+            n_out=1,
+            n_hidden=n_hidden,
+            n_layers=n_layers,
+            activation=activation,
+            sactivation=activation,
+        )
+        
+        # self.dnn = nn.Sequential(
+        #     nn.Linear(27, 30),
+        #     nn.SiLU(),
+        #     nn.Linear(30, 27)
+        # )
+        
+    def forward(self, inputs):
+        positions = inputs[properties.R] # 90 x 3
+        l0 = inputs["scalar_representation"] # 90 x 30
+        l1 = inputs["vector_representation"] # 90 x 3 x 30
+
+        l0, l1 = self.outnet((l0, l1)) # 90 x 1, 90 x 3 x 1
+        
+        l1 = l1.squeeze(-1) # 90 x 3
+        
+        
+        #newton = self.dnn(l1.view(10, 9, 3).view(-1, 27)).view(-1, 3) # 90 x 3
+        
+        inputs[self.best_direction_key] = l1
         return inputs

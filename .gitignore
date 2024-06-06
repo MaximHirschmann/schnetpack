@@ -126,3 +126,5 @@ interfaces/lammps/examples/*/deployed_model
 
 # batchwise optimizer examples
 examples/howtos/howto_batchwise_relaxations_outputs/*
+examples/tutorials/qm9.db
+maxim/data/custom_database.db

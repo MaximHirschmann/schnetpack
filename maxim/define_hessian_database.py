@@ -1,8 +1,18 @@
+import os
+import sys
+
+schnetpack_dir = os.getcwd()
+sys.path.insert(1, schnetpack_dir + "\\src")
+
+from ase.io import read
+import schnetpack as spk
+from schnetpack.data import ASEAtomsData
+import schnetpack.transform as trn
 import matplotlib.pyplot as plt
 import numpy as np
-import os
-from ase.io import read
-from schnetpack.data import ASEAtomsData
+import torch
+from time import time
+
 
 
 def get_targets(raw_data_dir, idx):
@@ -55,31 +65,134 @@ def create_databases():
         property_unit_dict={"energy": "Hartree",
                             "forces": "Hartree/Bohr",
                             "hessian": "Hartree/Bohr/Bohr",
-                            "newton_step": "Bohr"},
+                            "newton_step": "Bohr",
+                            "best_direction": "Hartree/Bohr"},
     )
 
-    hessian_determinants = []
     for sample_idx, at in zip(indices, ats):
-        print(sample_idx)
         energies, forces, hessians = get_targets(raw_data_dir, sample_idx)
 
         forces_flattened = forces.flatten()
         newton_step = -np.linalg.solve(hessians, forces_flattened).reshape(9, 3)
-
+        
+        
+        norm = np.linalg.norm(newton_step, axis=1)
+        newton_step = newton_step / norm[:, None]
+        
+        # get best optimization step
+        best_direction = get_best_direction(at, forces)
+        
+        
+        # im = plt.imshow(newton_step)
+        # plt.colorbar(im)
+        # plt.title("Average newton step")
+        # plt.show()
+        # plt.close()
+        
         properties = {
             "energy": energies[None],
             "forces": forces,
             "hessian": hessians,
-            "newton_step": newton_step
+            "newton_step": newton_step,
+            "best_direction": best_direction
         }
 
         new_dataset.add_systems([properties], [at])
         
+        print(sample_idx)
+        
+        
+def get_best_direction(atom, force):
     
+    converter = spk.interfaces.AtomsConverter(
+        neighbor_list=trn.ASENeighborList(cutoff=5.0), dtype=torch.float32, device="cuda"
+    )
+    
+    x = atom.positions.copy()
+    
+    atom.positions = x + force
+    inputs = converter(atom)
+    energy = model(inputs)["energy"]
+    
+    best_energy = energy
+    best_delta = force
+    
+    # scalar - the norm of the force
+    force_norm = np.linalg.norm(force)
+    
+    energy_history = [best_energy]
+    #t0 = time()
+    # get the best direction to minimize the energy
+    for i in range(3):
+        for j in range(2 * x.shape[0]):
+            dim = j % x.shape[0]
+            muh = (-1) ** (j // x.shape[0]) * 0.01
+            while True:
+                new_delta = best_delta.copy()
+                new_delta[dim] += muh
+                # adjust norm to that of the force
+                new_delta = new_delta * force_norm / np.linalg.norm(new_delta)
+                
+                new_x = x + new_delta
+                
+                atom.positions = new_x
+                inputs = converter(atom)
+                new_energy = model(inputs)["energy"]
+                
+                if new_energy < best_energy:
+                    best_energy = new_energy
+                    best_delta = new_delta
+                else:
+                    break
+        energy_history.append(best_energy)
+        
+    
+    # print(energy_history)
+    # print(time() - t0, "s")
+    
+    # compare the best direction with the force with matplotlib and energy
+    
+    # fig, axs = plt.subplots(2, 2, figsize=(10, 10))
+    
+    # im = axs[0, 0].imshow(force)
+    # axs[0, 0].set_title("Force")
+    # fig.colorbar(im, ax=axs[0, 0])
+    
+    # im = axs[0, 1].imshow(best_delta)
+    # axs[0, 1].set_title("Best direction")
+    # fig.colorbar(im, ax=axs[0, 1])
+
+    # atom.positions = x + force
+    # inputs = converter(atom)
+    # force_energy = model(inputs)["energy"].detach().cpu().numpy()[0]
+    
+    # atom.positions = x + best_delta
+    # inputs = converter(atom)
+    # best_energy = model(inputs)["energy"].detach().cpu().numpy()[0]
+    
+    # axs[1, 0].text(0.5, 0.5, f"Force energy: {force_energy}")
+    
+    # axs[1, 1].text(0.5, 0.5, f"Best energy: {best_energy}")
+    
+    # plt.show()
+    # plt.close()
+    
+    atom.positions = x
+    
+    return best_delta
+    
+    
+    
+    
+        
+        
 
 data_directory = os.getcwd() + "\\maxim\\data\\"
 raw_data_dir = data_directory + "ene_grad_hess_1000eth"
 rmd17_data_path = data_directory + "rMD17\\rMD17.db"
 database_file = data_directory + "custom_database.db"
+model_file = os.getcwd() + "\\maxim\\best_inference_model"
+
+model = torch.load(model_file)
 
 create_databases()

@@ -178,24 +178,34 @@ def plot_forces_and_hessians(structure, results, showDiff=True):
     # plt.tight_layout()
     plt.show()
 
+    
+    
+
 def plot(structure, 
          results, 
          showDiff=True,
          plotForces=True,
          plotNewtonStep=True,
          plotHessians=True,
-         plotInverseHessians=True):
+         plotInverseHessians=True,
+         plotBestDirection=True):
     
     def add_subplot(axs, row, col, data, title, vmin=None, vmax=None):
-        im = axs[row, col].imshow(data, cmap="viridis", vmin=vmin, vmax=vmax)
-        axs[row, col].set_title(title)
-        plt.colorbar(im, ax=axs[row, col])
+        if rows == 1:
+            im = axs[col].imshow(data, cmap="viridis", vmin=vmin, vmax=vmax)
+            axs[col].set_title(title)
+            plt.colorbar(im, ax=axs[col])
+            return
+        else:
+            im = axs[row, col].imshow(data, cmap="viridis", vmin=vmin, vmax=vmax)
+            axs[row, col].set_title(title)
+            plt.colorbar(im, ax=axs[row, col])
 
     def prepare_data(true_data, pred_data):
-        true_data, pred_data = true_data.numpy(), pred_data.detach().numpy()
+        true_data, pred_data = true_data.cpu().numpy(), pred_data.cpu().detach().numpy()
         return true_data, pred_data, min(true_data.min(), pred_data.min()), max(true_data.max(), pred_data.max())
 
-    rows = sum([plotForces, plotNewtonStep, plotHessians, plotInverseHessians])
+    rows = sum([plotForces, plotNewtonStep, plotHessians, plotInverseHessians, plotBestDirection])
     columns = 2 + showDiff
 
     fig, axs = plt.subplots(rows, columns, figsize=(10, 5*rows))
@@ -238,6 +248,63 @@ def plot(structure,
         if showDiff:
             add_subplot(axs, row, 2, true_inv - pred_inv, "Difference")
         row += 1
+        
+    if plotBestDirection:
+        true_best_direction, pred_best_direction, vmin_direction, vmax_direction = prepare_data(structure["best_direction"], results["best_direction"])
+        true_best_direction, pred_best_direction = true_best_direction.reshape(3, 9), pred_best_direction.reshape(3, 9)
+        
+        add_subplot(axs, row, 0, pred_best_direction, "Predicted best direction", vmin_direction, vmax_direction)
+        add_subplot(axs, row, 1, true_best_direction, "True best direction", vmin_direction, vmax_direction)
+        if showDiff:
+            add_subplot(axs, row, 2, true_best_direction - pred_best_direction, "Difference", vmin_direction, vmax_direction)
+        row += 1
 
     plt.tight_layout()
     plt.show()
+
+
+def plot_positions(structure):
+    positions = structure["_positions"].cpu().numpy()
+    # forces = structure["forces"].cpu().numpy()
+    forces = structure["newton_step"].cpu().numpy()
+    
+    scale_factor = 1.0
+    forces_scaled = forces * scale_factor
+        
+    # Define colors for each atom (you can customize this as needed)
+    # colors = plt.cm.jet(np.linspace(0, 1, positions_np.shape[0]))
+    colors = np.array([
+        "k",
+        "k",
+        "r",
+        "b",
+        "b",
+        "b",
+        "b",
+        "b",
+        "b"
+    ])
+
+    # Create a 3D scatter plot
+    fig = plt.figure()
+    ax = fig.add_subplot(111, projection='3d')
+
+    # Scatter plot
+    sc = ax.scatter(positions[:, 0], positions[:, 1], positions[:, 2], c=colors, s=100, label='Atom Positions')
+    
+    # Quiver plot for force vectors
+    for i in range(positions.shape[0]):
+        ax.quiver(positions[i, 0], positions[i, 1], positions[i, 2],
+                forces_scaled[i, 0], forces_scaled[i, 1], forces_scaled[i, 2],
+                color=colors[i], arrow_length_ratio=0.1, label='Force Vector' if i == 0 else "")
+
+    # Adding labels and title
+    ax.set_xlabel('X')
+    ax.set_ylabel('Y')
+    ax.set_zlabel('Z')
+    ax.set_title('3D Positions of Atoms')
+
+    # Show the plot
+    plt.legend()
+    plt.show()
+    
