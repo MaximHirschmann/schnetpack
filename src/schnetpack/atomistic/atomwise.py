@@ -8,7 +8,7 @@ import schnetpack as spk
 import schnetpack.nn as snn
 import schnetpack.properties as properties
 
-__all__ = ["Atomwise", "DipoleMoment", "Polarizability", "Hessian", "Hessian2", "Hessian3", "Hessian4", "Hessian5", "Hessian6", "NewtonStep", "BestDirection"]
+__all__ = ["Atomwise", "DipoleMoment", "Polarizability", "Hessian", "Hessian2", "Hessian3", "Hessian4", "Hessian5", "Hessian6", "NewtonStep", "BestDirection", "Forces2"]
 
 
 class Atomwise(nn.Module):
@@ -351,7 +351,7 @@ class Hessian(nn.Module):
         maxm = int(idx_m[-1]) + 1
         hessian = snn.scatter_add(temp3, idx_m, dim_size=maxm) # 10 x 27 x 27
         
-        if self.final_linear is not None:
+        if self.final_linear:
             hessian = hessian.view(-1, 27 * 27)
             hessian = self.final_linear_layer(hessian)
             hessian = hessian.view(-1, 27, 27)
@@ -831,9 +831,9 @@ class NewtonStep(nn.Module):
         
         l1 = l1.squeeze(-1) # 90 x 3
         
-        newton = self.dnn(l1.view(10, 9, 3).view(-1, 27)).view(-1, 3) # 90 x 3
+        # newton = self.dnn(l1.view(10, 9, 3).view(-1, 27)).view(-1, 3) # 90 x 3
         
-        inputs[self.newton_step_key] = newton
+        inputs[self.newton_step_key] = l1
         return inputs
 
 
@@ -881,4 +881,42 @@ class BestDirection(nn.Module):
         #newton = self.dnn(l1.view(10, 9, 3).view(-1, 27)).view(-1, 3) # 90 x 3
         
         inputs[self.best_direction_key] = l1
+        return inputs
+
+
+class Forces2(nn.Module): 
+    def __init__(
+        self,
+        n_in: int,
+        n_hidden: Optional[Union[int, Sequence[int]]] = None,
+        n_layers: int = 2,
+        activation: Callable = F.silu,
+        forces_copy_key: str = "forces_copy",
+    ):
+        super(Forces2, self).__init__()
+        self.n_in = n_in
+        self.n_layers = n_layers
+        self.n_hidden = n_hidden
+        self.forces_copy_key = forces_copy_key
+        self.model_outputs = [forces_copy_key]
+    
+        self.outnet = spk.nn.build_gated_equivariant_mlp(
+            n_in=n_in,
+            n_out=1,
+            n_hidden=n_hidden,
+            n_layers=n_layers,
+            activation=activation,
+            sactivation=activation,
+        )
+        
+    def forward(self, inputs):
+        positions = inputs[properties.R] # 90 x 3
+        l0 = inputs["scalar_representation"] # 90 x 30
+        l1 = inputs["vector_representation"] # 90 x 3 x 30
+
+        l0, l1 = self.outnet((l0, l1)) # 90 x 1, 90 x 3 x 1
+        
+        l1 = l1.squeeze(-1) # 90 x 3
+        
+        inputs[self.forces_copy_key] = l1
         return inputs

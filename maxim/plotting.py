@@ -1,185 +1,7 @@
 import matplotlib.pyplot as plt
 import numpy as np
     
-def plot_hessian(hessian):
-    hessian = hessian.numpy()
-    
-    plt.imshow(hessian)
-    plt.title("Average hessian")
-    plt.show()
-        
 
-def plot_forces(forces_true, forces_pred):
-    forces_true, forces_pred = forces_true.numpy(), forces_pred.detach().numpy()
-    forces_true = forces_true.reshape(3, 9)
-    forces_pred = forces_pred.reshape(3, 9)
-    vmin = min(forces_true.min(), forces_pred.min())
-    vmax = max(forces_true.max(), forces_pred.max())
-    
-    fig, axs = plt.subplots(1, 2, figsize=(10, 5))
-    im1 = axs[0].imshow(forces_true, cmap='viridis', vmin=vmin, vmax=vmax)
-    axs[0].set_title("True forces")
-    
-    im2 = axs[1].imshow(forces_pred, cmap='viridis', vmin=vmin, vmax=vmax)
-    axs[1].set_title("Predicted forces")
-    
-    fig.colorbar(im1, ax=axs[0])
-    fig.colorbar(im2, ax=axs[1])
-    
-    plt.show()
-    
-    
-
-def plot_hessians(hessian_true, hessian_pred):
-    true, pred = hessian_true.numpy(), hessian_pred.detach().numpy()
-    true_inv, pred_inv = np.linalg.inv(true), np.linalg.inv(pred)
-    
-    vmin = min(true.min(), pred.min())
-    vmax = max(true.max(), pred.max())
-    
-    cmap='viridis'
-    fig, axs = plt.subplots(2, 2, figsize=(10, 10))
-    im1 = axs[0, 0].imshow(true, cmap=cmap, vmin=vmin, vmax=vmax)
-    axs[0, 0].set_title("True hessian")
-    
-    im2 = axs[0, 1].imshow(pred, cmap=cmap, vmin=vmin, vmax=vmax)
-    axs[0, 1].set_title("Predicted hessian")
-
-    im3 = axs[1, 0].imshow(true_inv, cmap=cmap)
-    axs[1, 0].set_title("True inverse hessian")
-
-    im4 = axs[1, 1].imshow(pred_inv, cmap=cmap)
-    axs[1, 1].set_title("Predicted inverse hessian")
-
-    # Add colorbars
-    fig.colorbar(im1, ax=axs[0, 0])
-    fig.colorbar(im2, ax=axs[0, 1])
-    fig.colorbar(im3, ax=axs[1, 0])
-    fig.colorbar(im4, ax=axs[1, 1])
-
-    # Hide ticks
-    for ax in axs.flatten():
-        ax.set_xticks([])
-        ax.set_yticks([])
-        
-        # 3x3 lines
-        for i in range(1, 3):
-            axs[0, 0].axhline(i*9-0.5, color='black')
-            axs[0, 0].axvline(i*9-0.5, color='black')
-            axs[0, 1].axhline(i*9-0.5, color='black')
-            axs[0, 1].axvline(i*9-0.5, color='black')
-            axs[1, 0].axhline(i*9-0.5, color='black')
-            axs[1, 0].axvline(i*9-0.5, color='black')
-            axs[1, 1].axhline(i*9-0.5, color='black')
-            axs[1, 1].axvline(i*9-0.5, color='black')
-    
-    plt.tight_layout()
-    plt.show()
-
-
-def plot_forces_and_hessians(structure, results, showDiff=True):
-    forces_true = structure["forces"]
-    forces_pred = results["forces"]
-    hessian_true = structure["hessian"]
-    hessian_pred = results["hessian"]
-    
-    # Plot forces
-    forces_true, forces_pred = forces_true.numpy(), forces_pred.detach().numpy()
-    forces_true = forces_true.reshape(3, 9)
-    forces_pred = forces_pred.reshape(3, 9)
-    vmin_force = min(forces_true.min(), forces_pred.min())
-    vmax_force = max(forces_true.max(), forces_pred.max())
-    
-    # Plot Hessians
-    true_hessian, pred_hessian = hessian_true.numpy(), hessian_pred.detach().numpy()
-    true_inv, pred_inv = np.linalg.inv(true_hessian), np.linalg.inv(pred_hessian)
-    
-    vmin_hessian = min(true_hessian.min(), pred_hessian.min())
-    vmax_hessian = max(true_hessian.max(), pred_hessian.max())
-    
-    columns = 2
-    if showDiff:
-        columns = 3
-        
-    fig, axs = plt.subplots(3, columns, figsize=(10, 15))
-    
-    cmap = "inferno"
-    
-    # Plot true forces
-    im1 = axs[0, 0].imshow(forces_true, cmap=cmap, vmin=vmin_force, vmax=vmax_force)
-    axs[0, 0].set_title("True forces")
-    fig.colorbar(im1, ax=axs[0, 0])
-    
-    # Plot predicted forces
-    im2 = axs[0, 1].imshow(forces_pred, cmap=cmap, vmin=vmin_force, vmax=vmax_force)
-    axs[0, 1].set_title("Predicted forces")
-    fig.colorbar(im2, ax=axs[0, 1])
-    
-    # Plot difference
-    if showDiff:
-        im3 = axs[0, 2].imshow(forces_true - forces_pred, cmap=cmap, vmin=vmin_force, vmax=vmax_force)
-        axs[0, 2].set_title("Difference")
-        fig.colorbar(im3, ax=axs[0, 2])
-    
-    # Plot true hessian
-    im3 = axs[1, 0].imshow(true_hessian, cmap=cmap, vmin=vmin_hessian, vmax=vmax_hessian)
-    axs[1, 0].set_title("True hessian")
-    fig.colorbar(im3, ax=axs[1, 0])
-    
-    # Plot predicted hessian
-    im4 = axs[1, 1].imshow(pred_hessian, cmap=cmap, vmin=vmin_hessian, vmax=vmax_hessian)
-    axs[1, 1].set_title("Predicted hessian")
-    fig.colorbar(im4, ax=axs[1, 1])
-    
-    # Plot difference
-    if showDiff:
-        im5 = axs[1, 2].imshow(true_hessian - pred_hessian, cmap=cmap, vmin=vmin_hessian, vmax=vmax_hessian)
-        axs[1, 2].set_title("Difference")
-        fig.colorbar(im5, ax=axs[1, 2])
-    
-    # Plot true inverse hessian
-    im5 = axs[2, 0].imshow(true_inv, cmap=cmap)
-    axs[2, 0].set_title("True inverse hessian")
-    fig.colorbar(im5, ax=axs[2, 0])
-    
-    # Plot predicted inverse hessian
-    im6 = axs[2, 1].imshow(pred_inv, cmap=cmap)
-    axs[2, 1].set_title("Predicted inverse hessian")
-    fig.colorbar(im6, ax=axs[2, 1])
-    
-    # Plot difference
-    if showDiff:
-        im7 = axs[2, 2].imshow(true_inv - pred_inv, cmap=cmap)
-        axs[2, 2].set_title("Difference")
-        fig.colorbar(im7, ax=axs[2, 2])
-
-
-
-    # Hide ticks
-    for ax in axs.flatten():
-        ax.set_xticks([])
-        ax.set_yticks([])
-        
-        # 3x3 lines
-        for i in range(1, 3):
-            axs[1, 0].axhline(i*9-0.5, color='black')
-            axs[1, 0].axvline(i*9-0.5, color='black')
-            axs[1, 1].axhline(i*9-0.5, color='black')
-            axs[1, 1].axvline(i*9-0.5, color='black')
-            axs[1, 2].axhline(i*9-0.5, color='black')
-            axs[1, 2].axvline(i*9-0.5, color='black')
-            axs[2, 0].axhline(i*9-0.5, color='black')
-            axs[2, 0].axvline(i*9-0.5, color='black')
-            axs[2, 1].axhline(i*9-0.5, color='black')
-            axs[2, 1].axvline(i*9-0.5, color='black')
-            axs[2, 2].axhline(i*9-0.5, color='black')
-            axs[2, 2].axvline(i*9-0.5, color='black')
-    
-    # plt.tight_layout()
-    plt.show()
-
-    
-    
 
 def plot(structure, 
          results, 
@@ -188,7 +10,14 @@ def plot(structure,
          plotNewtonStep=True,
          plotHessians=True,
          plotInverseHessians=True,
-         plotBestDirection=True):
+         plotBestDirection=True,
+         plotForcesCopy=True):
+    
+    l = locals()
+    rows = sum([int(v) for k, v in l.items() if type(v) is bool and k != "showDiff"])
+    columns = 2 + showDiff
+
+    fig, axs = plt.subplots(rows, columns, figsize=(10, 5*rows))
     
     def add_subplot(axs, row, col, data, title, vmin=None, vmax=None):
         if rows == 1:
@@ -204,11 +33,6 @@ def plot(structure,
     def prepare_data(true_data, pred_data):
         true_data, pred_data = true_data.cpu().numpy(), pred_data.cpu().detach().numpy()
         return true_data, pred_data, min(true_data.min(), pred_data.min()), max(true_data.max(), pred_data.max())
-
-    rows = sum([plotForces, plotNewtonStep, plotHessians, plotInverseHessians, plotBestDirection])
-    columns = 2 + showDiff
-
-    fig, axs = plt.subplots(rows, columns, figsize=(10, 5*rows))
     
     row = 0
     if plotForces:
@@ -259,16 +83,27 @@ def plot(structure,
             add_subplot(axs, row, 2, true_best_direction - pred_best_direction, "Difference", vmin_direction, vmax_direction)
         row += 1
 
+    if plotForcesCopy:
+        _, _, vmin_force, vmax_force = prepare_data(structure["forces"], results["forces"])
+        forces_copy_true, forces_copy_pred, _, _ = prepare_data(structure["forces_copy"], results["forces_copy"])
+        forces_copy_true, forces_copy_pred = forces_copy_true.reshape(3, 9), forces_pred.reshape(3, 9)
+        
+        add_subplot(axs, row, 0, forces_copy_true, "Predicted forces copy", vmin_force, vmax_force)
+        add_subplot(axs, row, 1, forces_copy_pred, "True forces copy", vmin_force, vmax_force)
+        if showDiff:
+            add_subplot(axs, row, 2, forces_copy_true - forces_copy_pred, "Difference", vmin_force, vmax_force)
+        row += 1
+        
     plt.tight_layout()
     plt.show()
 
 
-def plot_positions(structure):
+def plot_structure(structure):
     positions = structure["_positions"].cpu().numpy()
     # forces = structure["forces"].cpu().numpy()
-    forces = structure["newton_step"].cpu().numpy()
+    forces = structure["forces"].cpu().numpy()
     
-    scale_factor = 1.0
+    scale_factor = 10.0
     forces_scaled = forces * scale_factor
         
     # Define colors for each atom (you can customize this as needed)
@@ -308,3 +143,75 @@ def plot_positions(structure):
     plt.legend()
     plt.show()
     
+# just like plot_structure but for multiple structures
+def plot_structures(structures):
+    fig, axs = plt.subplots(len(structures), 1, figsize=(10, 5*len(structures)), subplot_kw={'projection': '3d'})
+    
+    for i, structure in enumerate(structures):
+        positions = structure["_positions"].cpu().numpy()
+        forces = structure["forces"].cpu().numpy()
+        
+        scale_factor = 10.0
+        forces_scaled = forces * scale_factor
+
+        colors = np.array([
+            "k",
+            "k",
+            "r",
+            "b",
+            "b",
+            "b",
+            "b",
+            "b",
+            "b"
+        ])
+
+        sc = axs[i].scatter(positions[:, 0], positions[:, 1], positions[:, 2], c=colors, s=100, label='Atom Positions')
+        
+        for j in range(positions.shape[0]):
+            axs[i].quiver(positions[j, 0], positions[j, 1], positions[j, 2],
+                    forces_scaled[j, 0], forces_scaled[j, 1], forces_scaled[j, 2],
+                    color=colors[j], arrow_length_ratio=0.1, label='Force Vector' if j == 0 else "")
+
+        axs[i].set_xlabel('X')
+        axs[i].set_ylabel('Y')
+        axs[i].set_zlabel('Z')
+        axs[i].set_title('3D Positions of Atoms')
+        
+    plt.legend()
+    plt.tight_layout()
+    plt.show()
+    
+    
+def plot_atoms(list_of_atoms):
+    # plot the atoms into the same graph
+    
+    fig, axs = plt.subplots(1, 1, figsize=(20, 20), subplot_kw={'projection': '3d'})
+    
+    markers = ['o', '^', 's', 'P', '*', 'X', 'D']
+    
+    for i, atoms in enumerate(list_of_atoms):
+        positions = atoms.get_positions()
+        colors = np.array([
+            "k",
+            "k",
+            "r",
+            "b",
+            "b",
+            "b",
+            "b",
+            "b",
+            "b"
+        ])
+        
+        sc = axs.scatter(positions[:, 0], positions[:, 1], positions[:, 2], c=colors, s=100, label='Atom Positions', marker = markers[i])
+        
+    axs.set_xlabel('X')
+    axs.set_ylabel('Y')
+    axs.set_zlabel('Z')
+    axs.set_title('3D Positions of Atoms')
+    plt.legend()
+    plt.show()
+    
+    
+        

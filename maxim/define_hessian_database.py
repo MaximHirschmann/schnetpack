@@ -51,6 +51,17 @@ def get_indices(raw_data_dir):
     return indices
 
 
+def levenberg_marquardt(hessian):
+    eigvals = np.linalg.eigvalsh(hessian)
+    min_eigval = np.min(eigvals)
+    
+    if min_eigval > 0:
+        return hessian
+    
+    factor = -min_eigval + 0.1
+    return hessian + factor * np.eye(hessian.shape[0])
+
+
 def create_databases():
     # get the indices of all files in energies_dirbi
     indices = get_indices(raw_data_dir)
@@ -62,39 +73,42 @@ def create_databases():
     new_dataset = ASEAtomsData.create(
         database_file,
         distance_unit="Ang",
-        property_unit_dict={"energy": "Hartree",
-                            "forces": "Hartree/Bohr",
-                            "hessian": "Hartree/Bohr/Bohr",
-                            "newton_step": "Bohr",
-                            "best_direction": "Hartree/Bohr"},
+        property_unit_dict={
+            "energy": "Hartree",
+            "forces": "Hartree/Bohr",
+            "hessian": "Hartree/Bohr/Bohr",
+            "newton_step": "Hartree/Bohr",
+            # "best_direction": "Hartree/Bohr",
+            # "forces_copy": "Hartree/Bohr"
+            },
     )
 
     for sample_idx, at in zip(indices, ats):
         energies, forces, hessians = get_targets(raw_data_dir, sample_idx)
 
-        forces_flattened = forces.flatten()
-        newton_step = -np.linalg.solve(hessians, forces_flattened).reshape(9, 3)
+        hessians = levenberg_marquardt(hessians)
         
+        newton_step = np.linalg.solve(hessians, -forces.flatten()).reshape(forces.shape)
         
-        norm = np.linalg.norm(newton_step, axis=1)
-        newton_step = newton_step / norm[:, None]
+        # forces_norm = np.linalg.norm(forces)
+        
+        # forces_flattened = forces.flatten()
+        # newton_step = -np.linalg.solve(hessians, forces_flattened).reshape(9, 3)
+        
+        # newton_step = newton_step * forces_norm / np.linalg.norm(newton_step)
         
         # get best optimization step
-        best_direction = get_best_direction(at, forces)
+        #best_direction = get_best_direction(at, forces)
         
-        
-        # im = plt.imshow(newton_step)
-        # plt.colorbar(im)
-        # plt.title("Average newton step")
-        # plt.show()
-        # plt.close()
+        # forces_copy = forces.copy()
         
         properties = {
             "energy": energies[None],
             "forces": forces,
             "hessian": hessians,
             "newton_step": newton_step,
-            "best_direction": best_direction
+            # "best_direction": best_direction,
+            # "forces_copy": forces_copy,
         }
 
         new_dataset.add_systems([properties], [at])
@@ -103,7 +117,6 @@ def create_databases():
         
         
 def get_best_direction(atom, force):
-    
     converter = spk.interfaces.AtomsConverter(
         neighbor_list=trn.ASENeighborList(cutoff=5.0), dtype=torch.float32, device="cuda"
     )
@@ -128,6 +141,7 @@ def get_best_direction(atom, force):
             dim = j % x.shape[0]
             muh = (-1) ** (j // x.shape[0]) * 0.01
             while True:
+                # TODO check dimensions
                 new_delta = best_delta.copy()
                 new_delta[dim] += muh
                 # adjust norm to that of the force
@@ -147,43 +161,13 @@ def get_best_direction(atom, force):
         energy_history.append(best_energy)
         
     
-    # print(energy_history)
-    # print(time() - t0, "s")
-    
-    # compare the best direction with the force with matplotlib and energy
-    
-    # fig, axs = plt.subplots(2, 2, figsize=(10, 10))
-    
-    # im = axs[0, 0].imshow(force)
-    # axs[0, 0].set_title("Force")
-    # fig.colorbar(im, ax=axs[0, 0])
-    
-    # im = axs[0, 1].imshow(best_delta)
-    # axs[0, 1].set_title("Best direction")
-    # fig.colorbar(im, ax=axs[0, 1])
-
-    # atom.positions = x + force
-    # inputs = converter(atom)
-    # force_energy = model(inputs)["energy"].detach().cpu().numpy()[0]
-    
-    # atom.positions = x + best_delta
-    # inputs = converter(atom)
-    # best_energy = model(inputs)["energy"].detach().cpu().numpy()[0]
-    
-    # axs[1, 0].text(0.5, 0.5, f"Force energy: {force_energy}")
-    
-    # axs[1, 1].text(0.5, 0.5, f"Best energy: {best_energy}")
-    
-    # plt.show()
-    # plt.close()
-    
     atom.positions = x
     
     return best_delta
     
     
     
-    
+
         
         
 
