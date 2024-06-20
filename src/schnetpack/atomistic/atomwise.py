@@ -295,6 +295,10 @@ class Polarizability(nn.Module):
 
 
 class Hessian(nn.Module):
+    """
+    Using combination of l0, l1 features to build 27 x 27 matrix and 
+    then run one big linear layer.
+    """
     def __init__(
         self,
         n_in: int,
@@ -322,7 +326,6 @@ class Hessian(nn.Module):
             sactivation=activation,
         )
         
-    
     def forward(self, inputs):
         positions = inputs[properties.R] # 90 x 3
         l0 = inputs["scalar_representation"] # 90 x 30
@@ -364,7 +367,10 @@ class Hessian(nn.Module):
 
 
 class Hessian2(nn.Module):
-    
+    """
+    Applies linear layers to scalar, vector and positions features to get multiple 27 x 27 matrices
+    and then sum them up.
+    """
     def __init__(
         self,
         n_in: int,
@@ -406,7 +412,6 @@ class Hessian2(nn.Module):
             nn.SiLU(),
             nn.Linear(30, 27 * 27)
         )
-
     
     def forward(self, inputs):
         positions = inputs[properties.R] # 90 x 3
@@ -435,6 +440,10 @@ class Hessian2(nn.Module):
 
 
 class Hessian3(nn.Module):
+    """
+    Creates 3x3 mini hessians for each pair of atoms by applying multiple linear layers to l0, l1, s features
+    and then cocatenates them to get 27 x 27 hessian.
+    """
     def __init__(
         self,
         n_in: int,
@@ -483,9 +492,6 @@ class Hessian3(nn.Module):
             nn.Linear(30, 9)
         )
         
-        # self.final_linear_layer = nn.Linear(27 * 27, 27 * 27)
-        
-        
     def forward(self, inputs):
         positions = inputs[properties.R] # 90 x 3
         l0 = inputs["scalar_representation"] # 90 x 30
@@ -529,6 +535,10 @@ class Hessian3(nn.Module):
         return inputs
     
 class Hessian4(nn.Module):
+    """
+    calculate 3x3 mini hessians using one mlp which takes in l0, l1, positions and
+    then concatenate them to get 27x27 hessian.
+    """
     def __init__(
         self,
         n_in: int,
@@ -559,7 +569,6 @@ class Hessian4(nn.Module):
             nn.Linear(30, 9)
         )
         
-        
     def forward(self, inputs):
         positions = inputs[properties.R] # 90 x 3
         l0 = inputs["scalar_representation"] # 90 x 30
@@ -568,7 +577,6 @@ class Hessian4(nn.Module):
         l0, l1 = self.outnet((l0, l1)) # 90 x 1, 90 x 3 x 1
         
         l1 = l1.squeeze(-1)
-        
         
         n_atoms = inputs[properties.n_atoms]
         hessians: List[torch.Tensor] = []
@@ -604,9 +612,10 @@ class Hessian4(nn.Module):
         inputs[self.hessian_key] = hessians
         return inputs
     
-    
 
 class Hessian5(nn.Module):
+    """
+    """
     def __init__(
         self,
         n_in: int,

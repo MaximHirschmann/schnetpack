@@ -77,9 +77,8 @@ def create_databases():
             "energy": "Hartree",
             "forces": "Hartree/Bohr",
             "hessian": "Hartree/Bohr/Bohr",
+            "inv_hessian": "Bohr/Hartree/Bohr",
             "newton_step": "Hartree/Bohr",
-            # "best_direction": "Hartree/Bohr",
-            # "forces_copy": "Hartree/Bohr"
             },
     )
 
@@ -90,25 +89,14 @@ def create_databases():
         
         newton_step = np.linalg.solve(hessians, -forces.flatten()).reshape(forces.shape)
         
-        # forces_norm = np.linalg.norm(forces)
-        
-        # forces_flattened = forces.flatten()
-        # newton_step = -np.linalg.solve(hessians, forces_flattened).reshape(9, 3)
-        
-        # newton_step = newton_step * forces_norm / np.linalg.norm(newton_step)
-        
-        # get best optimization step
-        #best_direction = get_best_direction(at, forces)
-        
-        # forces_copy = forces.copy()
+        inv_hessian = np.linalg.inv(hessians)
         
         properties = {
             "energy": energies[None],
             "forces": forces,
             "hessian": hessians,
             "newton_step": newton_step,
-            # "best_direction": best_direction,
-            # "forces_copy": forces_copy,
+            "inv_hessian": inv_hessian
         }
 
         new_dataset.add_systems([properties], [at])

@@ -3,6 +3,7 @@ import sys
 import os 
 from time import time
 from plotting import plot, plot_structure
+from Utils import load_model, load_data
 
 
 def logger(func):
@@ -17,44 +18,10 @@ def logger(func):
 def get_training_directory():
     return os.path.join(os.getcwd(), "training\\logs")
 
-@logger
-def load_data():
-    # filepath_hessian_db = os.path.join(os.getcwd(), 'maxim\\data\\ene_grad_hess_1000eth\\data.db')
-    filepath_hessian_db = os.path.join(os.getcwd(), "maxim\\data\\custom_database.db")
-
-    hessianData = spk.data.AtomsDataModule(
-        filepath_hessian_db, 
-        distance_unit="Ang",
-        property_units={"energy": "Hartree",
-                        "forces": "Hartree/Bohr",
-                        "hessian": "Hartree/Bohr/Bohr",
-                        "newton_step": "Bohr",
-                        # "best_direction": "Hartree/Bohr"
-                        },
-        batch_size=10,
-        
-        transforms=[
-            trn.ASENeighborList(cutoff=5.),
-            trn.RemoveOffsets("energy", remove_mean=True, remove_atomrefs=False),
-            trn.CastTo32()
-        ],
-        
-        num_train=800,
-        num_val=100,
-        num_test=100,
-        
-        pin_memory=True, # set to false, when not using a GPU
-        
-    )
-    hessianData.prepare_data()
-    hessianData.setup()
-    
-    return hessianData
-
 
 @logger
 def train(data):
-    epochs = 40
+    epochs = 30
     cutoff = 5.
     n_atom_basis = 30
 
@@ -85,16 +52,16 @@ def train(data):
         representation=paiNN,
         input_modules=[pairwise_distance],
         output_modules=[
-            pred_energy,
-            pred_forces, 
-            # pred_hessian3, 
+            # pred_energy,
+            # pred_forces, 
+            # pred_hessian, 
             pred_newton_step,
             # pred_best_direction,
             # pred_forces_copy
             ],
         postprocessors=[
             trn.CastTo64(),
-            trn.AddOffsets("energy", add_mean=True, add_atomrefs=False)
+            # trn.AddOffsets("energy", add_mean=True, add_atomrefs=False)
         ]
     )
 
@@ -128,7 +95,7 @@ def train(data):
     output_hessian = spk.task.ModelOutput(
         name="hessian",
         loss_fn=torch.nn.MSELoss(),
-        loss_weight=0,
+        loss_weight=1,
         metrics={
             "MAE": torchmetrics.MeanAbsoluteError()
         }
@@ -164,15 +131,15 @@ def train(data):
     task = spk.task.AtomisticTask(
         model=nnpot,
         outputs=[
-            output_energy, 
-            output_forces, 
+            # output_energy, 
+            # output_forces, 
             # output_hessian, 
             output_newton_step,
             # output_best_direction,
             # output_forces_copy
             ],
         optimizer_cls=torch.optim.AdamW,
-        optimizer_args={"lr": 1e-4}
+        optimizer_args={"lr": 2e-4}
     )
 
     filepath_model = os.path.join(get_training_directory(), "best_inference_model")
@@ -194,18 +161,6 @@ def train(data):
     )
 
     trainer.fit(task, datamodule=data)
-
-@logger
-def load_model(
-    model_path: str = None
-):
-    if model_path is None:
-        model_path = os.path.join(get_training_directory(), "best_inference_model")
-
-    # load model
-    best_model = torch.load(model_path, map_location=device)
-    
-    return best_model
 
 
 @logger
@@ -345,7 +300,7 @@ def main():
     
     # calculate_average_newton_step(data)
     
-    # train(data)
+    train(data)
     
     # model_name = "newton_step_model"
     # model_path = os.getcwd() + "\\maxim\\models\\" + model_name
@@ -357,7 +312,7 @@ def main():
     
     loss = evaluate_model(model, data, 
             showDiff=True,
-            plotForces=True,
+            plotForces=False,
             plotNewtonStep=True,
             plotHessians=False,
             plotInverseHessians=False,
@@ -365,7 +320,7 @@ def main():
             plotForcesCopy=False
         )
     
-    compare_directions(model, data, compare = ["forces", "newton_step"])
+    # compare_directions(model, data, compare = ["forces", "newton_step"])
     
     # calculate_average_hessian(data)
     
