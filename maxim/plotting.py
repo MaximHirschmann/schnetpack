@@ -65,12 +65,12 @@ def plot(structure,
         row += 1
 
     if plotInverseHessians:
-        true_inv, pred_inv = np.linalg.inv(true_hessian), np.linalg.inv(pred_hessian)
+        true_inv_hessian, pred_inv_hessian, vmin_inv_hessian, vmax_inv_hessian = prepare_data(structure["inv_hessian"], results["inv_hessian"])
 
-        add_subplot(axs, row, 0, pred_inv, "Predicted inverse hessian")
-        add_subplot(axs, row, 1, true_inv, "True inverse hessian")
+        add_subplot(axs, row, 0, pred_inv_hessian, "Predicted inverse hessian", vmin_inv_hessian, vmax_inv_hessian)
+        add_subplot(axs, row, 1, true_inv_hessian, "True inverse hessian", vmin_inv_hessian, vmax_inv_hessian)
         if showDiff:
-            add_subplot(axs, row, 2, true_inv - pred_inv, "Difference")
+            add_subplot(axs, row, 2, true_inv_hessian - pred_inv_hessian, "Difference", vmin_inv_hessian, vmax_inv_hessian)
         row += 1
         
     if plotBestDirection:

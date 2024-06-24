@@ -53,12 +53,13 @@ def load_data():
     hessianData = spk.data.AtomsDataModule(
         filepath_hessian_db, 
         distance_unit="Ang",
-        property_units={"energy": "Hartree",
-                        "forces": "Hartree/Bohr",
-                        "hessian": "Hartree/Bohr/Bohr",
-                        "newton_step": "Bohr",
-                        # "best_direction": "Hartree/Bohr"
-                        },
+        property_units={
+                "energy": "Hartree",
+                "forces": "Hartree/Bohr",
+                "hessian": "Hartree/Bohr/Bohr",
+                "inv_hessian": "Bohr/Hartree/Bohr",
+                "newton_step": "Hartree/Bohr",
+            },
         batch_size=10,
         
         transforms=[

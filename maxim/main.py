@@ -21,7 +21,7 @@ def get_training_directory():
 
 @logger
 def train(data):
-    epochs = 30
+    epochs = 40
     cutoff = 5.
     n_atom_basis = 30
 
@@ -37,16 +37,11 @@ def train(data):
     pred_energy = spk.atomistic.Atomwise(n_in=n_atom_basis, output_key="energy")
     pred_forces = spk.atomistic.Forces(energy_key="energy", force_key="forces")
     pred_polarizability = spk.atomistic.Polarizability(n_in = n_atom_basis, polarizability_key = "polarizability")
-    pred_hessian = spk.atomistic.Hessian(n_in = n_atom_basis, hessian_key = "hessian", final_linear=True)
-    pred_hessian2 = spk.atomistic.Hessian2(n_in = n_atom_basis, hessian_key = "hessian")
-    pred_hessian3 = spk.atomistic.Hessian3(n_in = n_atom_basis, hessian_key = "hessian")
-    pred_hessian4 = spk.atomistic.Hessian4(n_in = n_atom_basis, hessian_key = "hessian")
-    pred_hessian5 = spk.atomistic.Hessian5(n_in = n_atom_basis, hessian_key = "hessian")
-    pred_hessian6 = spk.atomistic.Hessian6(n_in = n_atom_basis, hessian_key = "hessian")
     pred_newton_step = spk.atomistic.NewtonStep(n_in = n_atom_basis, newton_step_key = "newton_step")
     pred_best_direction = spk.atomistic.BestDirection(n_in = n_atom_basis, best_direction_key = "best_direction")
     pred_forces_copy = spk.atomistic.Forces2(n_in = n_atom_basis, forces_copy_key = "forces_copy")
-
+    pred_hessian = spk.atomistic.Hessian2(n_in = n_atom_basis, hessian_key = "hessian")
+    pred_inv_hessian = spk.atomistic.Hessian2(n_in = n_atom_basis, hessian_key = "inv_hessian")
 
     nnpot = spk.model.NeuralNetworkPotential(
         representation=paiNN,
@@ -54,8 +49,9 @@ def train(data):
         output_modules=[
             # pred_energy,
             # pred_forces, 
-            # pred_hessian, 
-            pred_newton_step,
+            pred_hessian, 
+            pred_inv_hessian,
+            # pred_newton_step,
             # pred_best_direction,
             # pred_forces_copy
             ],
@@ -100,6 +96,15 @@ def train(data):
             "MAE": torchmetrics.MeanAbsoluteError()
         }
     )
+    
+    output_inv_hessian = spk.task.ModelOutput(
+        name="inv_hessian",
+        loss_fn=torch.nn.MSELoss(),
+        loss_weight=1,
+        metrics={
+            "MAE": torchmetrics.MeanAbsoluteError()
+        }
+    )
 
     output_newton_step = spk.task.ModelOutput(
         name="newton_step",
@@ -133,8 +138,9 @@ def train(data):
         outputs=[
             # output_energy, 
             # output_forces, 
-            # output_hessian, 
-            output_newton_step,
+            output_hessian, 
+            output_inv_hessian, 
+            # output_newton_step,
             # output_best_direction,
             # output_forces_copy
             ],
@@ -313,9 +319,9 @@ def main():
     loss = evaluate_model(model, data, 
             showDiff=True,
             plotForces=False,
-            plotNewtonStep=True,
-            plotHessians=False,
-            plotInverseHessians=False,
+            plotNewtonStep=False,
+            plotHessians=True,
+            plotInverseHessians=True,
             plotBestDirection=False,
             plotForcesCopy=False
         )
