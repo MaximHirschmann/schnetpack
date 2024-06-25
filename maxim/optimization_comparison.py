@@ -86,16 +86,18 @@ def get_forces(outputs):
 def gradient_descent(atoms, strategy, line_search=True):
     history = []
     
-    properties = ["energy", "forces"]
-    if strategy == "hessian":
-        properties.append("hessian")
-    elif strategy == "newton_step":
-        properties.append("newton_step")
-    elif strategy == "inv_hessian":
-        properties.append("inv_hessian")
+    match strategy:
+        case "forces":
+            properties = ["energy", "forces"]
+        case "hessian": 
+            properties = ["energy", "forces", "hessian"]
+        case "newton_step":
+            properties = ["energy", "forces", "newton_step"]
+        case "inv_hessian":
+            properties = ["energy", "forces", "inv_hessian"]
         
     converter = spk.interfaces.AtomsConverter(
-        neighbor_list=trn.ASENeighborList(cutoff=5.0), dtype=torch.float32, device="cuda"
+        neighbor_list=trn.ASENeighborList(cutoff=5.0), dtype=torch.float32, device=device
     )
     
     tolerance = 5e-3
@@ -104,6 +106,7 @@ def gradient_descent(atoms, strategy, line_search=True):
     rho_neg = 0.5
     rho_ls = 1e-4
     
+    i = 0
     counter = 0
     while True:
         outputs = evaluate_atom(converter(atoms), properties)
@@ -113,7 +116,9 @@ def gradient_descent(atoms, strategy, line_search=True):
         
         history.append(energy.item())
         
-        if step_size < tolerance:
+        if i > 100:
+            break
+        elif step_size < tolerance:
             counter += 1
             if counter == 10:
                 break
@@ -144,6 +149,7 @@ def gradient_descent(atoms, strategy, line_search=True):
                 break
             
         counter += 1
+        i += 1
     
     return history
     
@@ -192,12 +198,17 @@ def main():
     data = load_data()
     
     converter = spk.interfaces.AtomsConverter(
-        neighbor_list=trn.ASENeighborList(cutoff=5.0), dtype=torch.float32, device="cuda"
+        neighbor_list=trn.ASENeighborList(cutoff=5.0), dtype=torch.float32, device=device
     )
 
     histories = []
     
-    for i in random.sample(range(len(data.test_dataset)), 18):
+    runs = [
+        ["forces", True], ["hessian", True], ["newton_step", True], ["inv_hessian", True],
+    ]
+
+    for i in random.sample(range(len(data.test_dataset)), 4):
+        histories.append([])
         structure = data.test_dataset[i]
         atoms = Atoms(
             numbers=structure[spk.properties.Z], 
@@ -205,44 +216,25 @@ def main():
         )
 
         energy_0 = evaluate_atom(converter(atoms), ["energy"])["energy"]
-        # history_1, t1 = gradient_descent(atoms.copy(), "forces", line_search=False)
-        # history_2, t2 = gradient_descent(atoms.copy(), "hessian", line_search=False)
-        # history_3, t3 = gradient_descent(atoms.copy(), "newton_step", line_search=False)
-        
-        history_4, t4 = gradient_descent(atoms.copy(), "forces", line_search=True)
-        history_5, t5 = gradient_descent(atoms.copy(), "hessian", line_search=True)
-        history_6, t6 = gradient_descent(atoms.copy(), "newton_step", line_search=True)
-        history_7, t7 = gradient_descent(atoms.copy(), "inv_hessian", line_search=True)
-                
-        print(f"Structure {i}")
-        print(f"T0 Energy: {energy_0}")
-        # print(f"Result Forces: {history_1[-1]} in {len(history_1)} steps in {t1} seconds")
-        # print(f"Result Hessian: {history_2[-1]} in {len(history_2)} steps in {t2} seconds")
-        # print(f"Result Newton Step: {history_3[-1]} in {len(history_3)} steps in {t3} seconds")
-        print(f"Result Forces with Line Search: {history_4[-1]} in {len(history_4)} steps in {t4} seconds")
-        print(f"Result Hessian with Line Search: {history_5[-1]} in {len(history_5)} steps in {t5} seconds")
-        print(f"Result Newton Step with Line Search: {history_6[-1]} in {len(history_6)} steps in {t6} seconds")
-        print(f"Result Inverse Hessian with Line Search: {history_7[-1]} in {len(history_7)} steps in {t7} seconds")
+        print(f"Initial energy: {energy_0.item()}")
+        for strategy, line_search in runs:
+            history, t = gradient_descent(atoms.copy(), strategy, line_search=line_search)
+            print(f"Result {strategy} LS {line_search}: {history[-1]} in {len(history)} steps in {t} seconds")
+            histories[-1].append(history)
         print()
-        
-        histories.append([
-            #history_1, history_2, history_3, 
-            history_4, history_5, history_6, history_7
-            ])
-        
-    labels = [
-        # "Forces", "Hessian", "Newton Step", 
-        "Forces LS", "Hessian LS", "Newton Step LS", "Inv Hessian LS"
-        ]
+
+    labels = [f"{strategy} LS" if line_search else f"{strategy}" for strategy, line_search in runs]
+    
     plot_average(histories, labels)
     plot_all_histories(histories, labels)
     
 
 
 if __name__ == "__main__":
-    energy_model = load_model("energy_model")
-    hessian_model = load_model("hessian1")
-    newton_step_model = load_model("newton_step")
-    inv_hessian_model = load_model("inv_hessian2")
+    device = "cpu"
+    energy_model = load_model("energy_model", device=device)
+    hessian_model = load_model("hessian1", device=device)
+    newton_step_model = load_model("newton_step", device=device)
+    inv_hessian_model = load_model("inv_hessian2", device=device)
 
     main()
