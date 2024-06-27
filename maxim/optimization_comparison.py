@@ -71,6 +71,14 @@ def get_direction(outputs, strategy):
         newton_step = np.dot(inv_hessian, forces.flatten()).reshape(forces.shape)
         norm = np.linalg.norm(newton_step)
         direction = newton_step / norm
+    # H ≈ J^T * J approximation then calculate newton step
+    elif strategy == "hessian_approx":
+        forces = outputs["forces"]
+        approx_hessian = np.outer(forces.flatten(), forces.flatten()) + 1e-5 * np.eye(forces.size)
+        inv_hessian = np.linalg.inv(approx_hessian)
+        newton_step = np.linalg.solve(inv_hessian, forces.flatten()).reshape(forces.shape)
+        norm = np.linalg.norm(newton_step)
+        direction = newton_step / norm
     else:
         raise ValueError("Invalid strategy")
     
@@ -95,7 +103,9 @@ def gradient_descent(atoms, strategy, line_search=True):
             properties = ["energy", "forces", "newton_step"]
         case "inv_hessian":
             properties = ["energy", "forces", "inv_hessian"]
-        
+        case "hessian_approx":
+            properties = ["energy", "forces"]
+            
     converter = spk.interfaces.AtomsConverter(
         neighbor_list=trn.ASENeighborList(cutoff=5.0), dtype=torch.float32, device=device
     )
@@ -134,9 +144,13 @@ def gradient_descent(atoms, strategy, line_search=True):
                     positions=atoms.positions + step_size * direction
                 )
                 outputs = evaluate_atom(converter(new_atoms), ["energy", "forces"])
+                temp1 = get_energy(outputs)
+                temp2 = energy + rho_ls * step_size * np.dot(forces.flatten(), direction.flatten())
                 if get_energy(outputs) < energy + rho_ls * step_size * np.dot(forces.flatten(), direction.flatten()):
                     break
                 step_size = step_size * rho_neg
+                if step_size < 1e-5:
+                    break
         
             
         atoms.positions = atoms.positions + step_size * direction
@@ -204,10 +218,22 @@ def main():
     histories = []
     
     runs = [
-        ["forces", True], ["hessian", True], ["newton_step", True], ["inv_hessian", True],
+        # ["forces", False], 
+        # ["hessian", False], 
+        # ["newton_step", False], 
+        # ["inv_hessian", False],
+        ["forces", True], 
+        ["hessian", True], 
+        ["newton_step", True], 
+        ["inv_hessian", True],
+        ["hessian_approx", True]
     ]
 
-    for i in random.sample(range(len(data.test_dataset)), 4):
+    # append "LS" if line search is used
+    labels = [f"{run[0]} {'LS' if run[1] else ''}" for run in runs]
+    print(labels)
+    
+    for i in random.sample(range(len(data.test_dataset)), 10):
         histories.append([])
         structure = data.test_dataset[i]
         atoms = Atoms(
@@ -217,14 +243,13 @@ def main():
 
         energy_0 = evaluate_atom(converter(atoms), ["energy"])["energy"]
         print(f"Initial energy: {energy_0.item()}")
-        for strategy, line_search in runs:
+        for j, run in enumerate(runs):
+            strategy, line_search = run
             history, t = gradient_descent(atoms.copy(), strategy, line_search=line_search)
-            print(f"Result {strategy} LS {line_search}: {history[-1]} in {len(history)} steps in {t} seconds")
+            print(f"Result {labels[j]}: {history[-1]} in {len(history)} steps in {t} seconds")
             histories[-1].append(history)
         print()
 
-    labels = [f"{strategy} LS" if line_search else f"{strategy}" for strategy, line_search in runs]
-    
     plot_average(histories, labels)
     plot_all_histories(histories, labels)
     
