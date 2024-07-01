@@ -71,14 +71,6 @@ def get_direction(outputs, strategy):
         newton_step = np.dot(inv_hessian, forces.flatten()).reshape(forces.shape)
         norm = np.linalg.norm(newton_step)
         direction = newton_step / norm
-    # H ≈ J^T * J approximation then calculate newton step
-    elif strategy == "hessian_approx":
-        forces = outputs["forces"]
-        approx_hessian = np.outer(forces.flatten(), forces.flatten()) + 1e-5 * np.eye(forces.size)
-        inv_hessian = np.linalg.inv(approx_hessian)
-        newton_step = np.linalg.solve(inv_hessian, forces.flatten()).reshape(forces.shape)
-        norm = np.linalg.norm(newton_step)
-        direction = newton_step / norm
     else:
         raise ValueError("Invalid strategy")
     
@@ -226,7 +218,7 @@ def main():
         ["hessian", True], 
         ["newton_step", True], 
         ["inv_hessian", True],
-        ["hessian_approx", True]
+        # ["hessian_approx", True]
     ]
 
     # append "LS" if line search is used
