@@ -1,7 +1,15 @@
+from typing import List
 import matplotlib.pyplot as plt
 import numpy as np
     
-
+def plot_hessian(hessian):
+    # assumes the hessian is of shape 27 x 27
+    hessian = hessian.cpu().detach().numpy()
+    
+    plt.imshow(hessian, cmap="viridis")
+    plt.colorbar()
+    plt.show()
+    
 
 def plot(structure, 
          results, 
@@ -214,4 +222,42 @@ def plot_atoms(list_of_atoms):
     plt.show()
     
     
+def plot_average(histories: List[List[str]], labels, title = "Average Energy History"):
+    # convert each history to numpy array and make them the same length
+    max_length = max([len(history) for history in histories[0]])
+    np_histories = np.zeros((len(histories[0]), max_length))
+    for i in range(len(histories[0])):
+        for j in range(len(histories)):
+            fitted = histories[j][i][:max_length]
+            if len(fitted) < max_length:
+                fitted += [fitted[-1]] * (max_length - len(fitted))
+            np_histories[i] += fitted
+    np_histories /= len(histories)    
+
+    # plot average
+    plt.figure()
+    
+    for i, label in enumerate(labels):
+        plt.plot(np_histories[i], label=label)
+    
+    plt.title(title)
+    plt.legend()
+    plt.show()
+    
+def plot_all_histories(histories: List[List[str]], labels, title = "All Energy Histories"):
+    cols = 6
+    fig, axs = plt.subplots(int(np.ceil(len(histories) / cols)), cols, figsize=(15, 15))
+    
+    for i, history in enumerate(histories):
+        if len(histories) <= cols:
+            ax = axs[i]
+        else:
+            ax = axs[i // cols, i % cols]
+        for j, strategy_history in enumerate(histories[i]):
+            ax.plot(strategy_history, label=labels[j])
+            
+    handles, labels = ax.get_legend_handles_labels()
+    fig.legend(handles, labels, loc='center right')
+    plt.suptitle(title)
+    plt.show()
         

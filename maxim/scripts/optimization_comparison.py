@@ -4,9 +4,7 @@ Gradient Descent with Gradient vs Newton's Step
 
 import sys
 import os 
-from time import time
-from typing import List
-from plotting import plot, plot_structure
+from plotting import plot, plot_structure, plot_all_histories, plot_average
 from Utils import load_model, load_data, timed
 
 schnetpack_dir = os.getcwd()
@@ -18,92 +16,119 @@ import schnetpack.transform as trn
 from schnetpack.interfaces import SpkCalculator
 
 import torch
-import torchmetrics
 import pytorch_lightning as pl
 from ase import Atoms
-from tabulate import tabulate
 import numpy as np
 import matplotlib.pyplot as plt
 import random
 from time import time
+from typing import Dict, List, Tuple
 
 
-def evaluate_atom(inputs, properties: List[str]):
-    outputs = {}
-    if "energy" in properties or "forces" in properties:
-        temp = inputs.copy()
-        temp = energy_model(temp)
-        outputs["energy"] = temp["energy"].detach().cpu().numpy()
-        outputs["forces"] = temp["forces"].detach().cpu().numpy()
-    if "hessian" in properties:
-        temp = inputs.copy()
-        temp = hessian_model(temp)
-        # temp = inv_hessian_model(temp)
-        outputs["hessian"] = temp["hessian"].detach().cpu().numpy()
-    if "newton_step" in properties:
-        temp = inputs.copy()
-        temp = newton_step_model(temp)
-        outputs["newton_step"] = temp["newton_step"].detach().cpu().numpy()
-    if "inv_hessian" in properties:
-        temp = inputs.copy()
-        temp = inv_hessian_model(temp)
-        outputs["inv_hessian"] = temp["inv_hessian"].detach().cpu().numpy()
-    return outputs
-    
-def get_direction(outputs, strategy):
-    if strategy == "forces":
-        forces = outputs["forces"]
-        norm = np.linalg.norm(forces)
-        direction = forces / norm
-    elif strategy == "hessian":
-        hessian = outputs["hessian"]
-        forces = outputs["forces"]
-        newton_step = np.linalg.solve(hessian, forces.flatten()).reshape(forces.shape)
-        norm = np.linalg.norm(newton_step)
-        direction = newton_step / norm
-    elif strategy == "newton_step":
-        newton_step = outputs["newton_step"]
-        norm = np.linalg.norm(newton_step)
-        direction = -1 * newton_step / norm
-    elif strategy == "inv_hessian":
-        inv_hessian = outputs["inv_hessian"]
-        forces = outputs["forces"]
-        newton_step = np.dot(inv_hessian, forces.flatten()).reshape(forces.shape)
-        norm = np.linalg.norm(newton_step)
-        direction = newton_step / norm
-    else:
-        raise ValueError("Invalid strategy")
-    
-    return direction
-    
-def get_energy(outputs):
-    return outputs["energy"]
 
-def get_forces(outputs):
-    return outputs["forces"]
+class StrategyBase:
+    def __init__(self, name: str = "", line_search: bool = True) -> None:
+        self.name = name
+        self.line_search = line_search
+        
+    def prepare_energy_and_forces(self, inputs: Dict[str, torch.Tensor]) -> Tuple[np.array, np.array]:
+        inputs_copy = inputs.copy()
+        inputs_copy = energy_model(inputs_copy)
+        
+        return (
+            inputs_copy["energy"].detach().cpu().numpy(), 
+            inputs_copy["forces"].detach().cpu().numpy()
+            )
+    
+    def get_direction(self, inputs: Dict[str, torch.Tensor]) -> Tuple[np.array, np.array, np.array]:
+        raise NotImplementedError
+    
+class ForcesStrategy(StrategyBase):
+    def __init__(self, line_search: bool = True) -> None:
+        super().__init__("Forces", line_search)
+        
+    def get_direction(self, inputs: Dict[str, torch.Tensor]) -> Tuple[np.array, np.array, np.array]:
+        energy, forces = super().prepare_energy_and_forces(inputs)
+        
+        norm: np.array = np.linalg.norm(forces)
+        direction: np.array = forces / norm
+        
+        return energy, forces, direction
+    
+class HessianStrategy(StrategyBase):
+    def __init__(self, line_search: bool = True) -> None:
+        super().__init__("hessian", line_search)
+    
+    def get_direction(self, inputs: Dict[str, torch.Tensor]) -> Tuple[np.array, np.array, np.array]:
+        energy, forces = super().prepare_energy_and_forces(inputs)
+        
+        inputs_copy = inputs.copy()
+        inputs_copy = hessian_model(inputs_copy)
+        hessian: np.array = inputs_copy["hessian"].detach().cpu().numpy()
+        
+        newton_step: np.array = np.linalg.solve(hessian, forces.flatten()).reshape(forces.shape)
+        norm: np.array = np.linalg.norm(newton_step)
+        direction: np.array = newton_step / norm
+        
+        return energy, forces, direction
+    
+class NewtonStepStrategy(StrategyBase):
+    def __init__(self, line_search: bool = True) -> None:
+        super().__init__("Newton Step", line_search)
+    
+    def get_direction(self, inputs: Dict[str, torch.Tensor]) -> Tuple[np.array, np.array, np.array]:
+        energy, forces = super().prepare_energy_and_forces(inputs)
+        
+        inputs_copy = inputs.copy()
+        inputs_copy = newton_step_model(inputs_copy)
+        newton_step: np.array = inputs_copy["newton_step"].detach().cpu().numpy()
+        
+        norm: np.array = np.linalg.norm(newton_step)
+        direction: np.array = -1 * newton_step / norm
+        
+        return energy, forces, direction
+    
+class InvHessianStrategy(StrategyBase):
+    def __init__(self, line_search: bool = True) -> None:
+        super().__init__("Inv Hessian", line_search)
+    
+    def get_direction(self, inputs: Dict[str, torch.Tensor]) -> Tuple[np.array, np.array, np.array]:
+        energy, forces = super().prepare_energy_and_forces(inputs)
+        
+        inputs_copy = inputs.copy()
+        inputs_copy = inv_hessian_model(inputs_copy)
+        inv_hessian: np.array = inputs_copy["inv_hessian"].detach().cpu().numpy()
+        
+        newton_step: np.array = np.dot(inv_hessian, forces.flatten()).reshape(forces.shape)
+        norm: np.array = np.linalg.norm(newton_step)
+        direction: np.array = newton_step / norm
+        
+        return energy, forces, direction
+    
+class AvgHessianStrategy(StrategyBase):
+    def __init__(self, line_search: bool = True) -> None:
+        super().__init__("Avg Hessian", line_search)
+    
+    def get_direction(self, inputs: Dict[str, torch.Tensor]) -> Tuple[np.array, np.array, np.array]:
+        energy, forces = super().prepare_energy_and_forces(inputs)
+        
+        newton_step: np.array = np.dot(avg_hessian, forces.flatten()).reshape(forces.shape)
+        norm: np.array = np.linalg.norm(newton_step)
+        direction: np.array = newton_step / norm
+        
+        return energy, forces, direction
+
 
 @timed
-def gradient_descent(atoms, strategy, line_search=True):
+def gradient_descent(atoms, strategy: StrategyBase):
     history = []
     
-    match strategy:
-        case "forces":
-            properties = ["energy", "forces"]
-        case "hessian": 
-            properties = ["energy", "forces", "hessian"]
-        case "newton_step":
-            properties = ["energy", "forces", "newton_step"]
-        case "inv_hessian":
-            properties = ["energy", "forces", "inv_hessian"]
-        case "hessian_approx":
-            properties = ["energy", "forces"]
-            
     converter = spk.interfaces.AtomsConverter(
         neighbor_list=trn.ASENeighborList(cutoff=5.0), dtype=torch.float32, device=device
     )
     
     tolerance = 5e-3
-    step_size = 0.05 if line_search else 0.05
+    step_size = 0.05
     rho_pos = 1.2
     rho_neg = 0.5
     rho_ls = 1e-4
@@ -111,10 +136,7 @@ def gradient_descent(atoms, strategy, line_search=True):
     i = 0
     counter = 0
     while True:
-        outputs = evaluate_atom(converter(atoms), properties)
-        direction = get_direction(outputs, strategy)
-        energy = get_energy(outputs)
-        forces = get_forces(outputs)
+        energy, forces, direction = strategy.get_direction(converter(atoms))
         
         history.append(energy.item())
         
@@ -128,17 +150,15 @@ def gradient_descent(atoms, strategy, line_search=True):
             counter = 0
             
         # line search
-        if line_search:
+        if strategy.line_search:
             # modify step size 
             while True:
                 new_atoms = Atoms(
                     numbers=atoms.numbers, 
                     positions=atoms.positions + step_size * direction
                 )
-                outputs = evaluate_atom(converter(new_atoms), ["energy", "forces"])
-                temp1 = get_energy(outputs)
-                temp2 = energy + rho_ls * step_size * np.dot(forces.flatten(), direction.flatten())
-                if get_energy(outputs) < energy + rho_ls * step_size * np.dot(forces.flatten(), direction.flatten()):
+                new_energy, new_forces = strategy.prepare_energy_and_forces(converter(new_atoms))
+                if new_energy < energy + rho_ls * step_size * np.dot(forces.flatten(), direction.flatten()):
                     break
                 step_size = step_size * rho_neg
                 if step_size < 1e-5:
@@ -146,10 +166,10 @@ def gradient_descent(atoms, strategy, line_search=True):
         
             
         atoms.positions = atoms.positions + step_size * direction
-        if line_search:
+        if strategy.line_search:
             step_size = min(step_size * rho_pos, 0.05)
         
-        if not line_search:
+        if not strategy.line_search:
             # break if energy hasnt changed by 0.001 in the last 10 steps
             if len(history) > 30 and history[-1] - history[-10] >= -0.0001:
                 break
@@ -160,46 +180,6 @@ def gradient_descent(atoms, strategy, line_search=True):
     return history
     
 
-def plot_average(histories: List[List[str]], labels, title = "Average Energy History"):
-    # convert each history to numpy array and make them the same length
-    max_length = max([len(history) for history in histories[0]])
-    np_histories = np.zeros((len(histories[0]), max_length))
-    for i in range(len(histories[0])):
-        for j in range(len(histories)):
-            fitted = histories[j][i][:max_length]
-            if len(fitted) < max_length:
-                fitted += [fitted[-1]] * (max_length - len(fitted))
-            np_histories[i] += fitted
-    np_histories /= len(histories)    
-
-    # plot average
-    plt.figure()
-    
-    for i, label in enumerate(labels):
-        plt.plot(np_histories[i], label=label)
-    
-    plt.title(title)
-    plt.legend()
-    plt.show()
-    
-def plot_all_histories(histories: List[List[str]], labels, title = "All Energy Histories"):
-    cols = 6
-    fig, axs = plt.subplots(int(np.ceil(len(histories) / cols)), cols, figsize=(15, 15))
-    
-    for i, history in enumerate(histories):
-        if len(histories) <= cols:
-            ax = axs[i]
-        else:
-            ax = axs[i // cols, i % cols]
-        for j, strategy_history in enumerate(histories[i]):
-            ax.plot(strategy_history, label=labels[j])
-            
-    handles, labels = ax.get_legend_handles_labels()
-    fig.legend(handles, labels, loc='center right')
-    plt.suptitle(title)
-    plt.show()
-        
-
 def main():
     data = load_data()
     
@@ -209,22 +189,14 @@ def main():
 
     histories = []
     
-    runs = [
-        # ["forces", False], 
-        # ["hessian", False], 
-        # ["newton_step", False], 
-        # ["inv_hessian", False],
-        ["forces", True], 
-        ["hessian", True], 
-        ["newton_step", True], 
-        ["inv_hessian", True],
-        # ["hessian_approx", True]
+    strategies = [
+        ForcesStrategy(),
+        HessianStrategy(),
+        NewtonStepStrategy(),
+        InvHessianStrategy(),
+        AvgHessianStrategy()
     ]
 
-    # append "LS" if line search is used
-    labels = [f"{run[0]} {'LS' if run[1] else ''}" for run in runs]
-    print(labels)
-    
     for i in random.sample(range(len(data.test_dataset)), 10):
         histories.append([])
         structure = data.test_dataset[i]
@@ -233,15 +205,16 @@ def main():
             positions=structure[spk.properties.R]
         )
 
-        energy_0 = evaluate_atom(converter(atoms), ["energy"])["energy"]
+        energy_0, _ = StrategyBase().prepare_energy_and_forces(converter(atoms))
         print(f"Initial energy: {energy_0.item()}")
-        for j, run in enumerate(runs):
-            strategy, line_search = run
-            history, t = gradient_descent(atoms.copy(), strategy, line_search=line_search)
-            print(f"Result {labels[j]}: {history[-1]} in {len(history)} steps in {t} seconds")
+        for strategy in strategies:
+            history, t = gradient_descent(atoms.copy(), strategy)
+            print(f"Result {strategy.name}: {history[-1]} in {len(history)} steps in {t} seconds")
+            
             histories[-1].append(history)
         print()
 
+    labels = [strategy.name for strategy in strategies]
     plot_average(histories, labels)
     plot_all_histories(histories, labels)
     
@@ -253,5 +226,6 @@ if __name__ == "__main__":
     hessian_model = load_model("hessian1", device=device)
     newton_step_model = load_model("newton_step", device=device)
     inv_hessian_model = load_model("inv_hessian2", device=device)
+    avg_hessian = np.load(os.getcwd() + "\\maxim\\data\\avg_hessian.npy")
 
     main()
