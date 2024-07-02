@@ -1,10 +1,12 @@
 from typing import List
 import matplotlib.pyplot as plt
 import numpy as np
+
     
 def plot_hessian(hessian):
     # assumes the hessian is of shape 27 x 27
-    hessian = hessian.cpu().detach().numpy()
+    if type(hessian) is not np.ndarray:
+        hessian = hessian.cpu().detach().numpy()
     
     plt.imshow(hessian, cmap="viridis")
     plt.colorbar()
