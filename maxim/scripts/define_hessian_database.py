@@ -79,24 +79,28 @@ def create_databases():
             "hessian": "Hartree/Bohr/Bohr",
             "inv_hessian": "Bohr/Hartree/Bohr",
             "newton_step": "Hartree/Bohr",
-            },
+            "original_hessian": "Hartree/Bohr/Bohr",
+            "original_diagonal": "Hartree/Bohr/Bohr",
+        },
     )
 
     for sample_idx, at in zip(indices, ats):
         energies, forces, hessians = get_targets(raw_data_dir, sample_idx)
 
-        hessians = levenberg_marquardt(hessians)
+        pd_hessians = levenberg_marquardt(hessians)
         
-        newton_step = np.linalg.solve(hessians, -forces.flatten()).reshape(forces.shape)
+        newton_step = np.linalg.solve(pd_hessians, -forces.flatten()).reshape(forces.shape)
         
-        inv_hessian = np.linalg.inv(hessians)
+        inv_hessian = np.linalg.inv(pd_hessians)
         
         properties = {
             "energy": energies[None],
             "forces": forces,
-            "hessian": hessians,
+            "hessian": pd_hessians,
             "newton_step": newton_step,
-            "inv_hessian": inv_hessian
+            "inv_hessian": inv_hessian,
+            "original_hessian": hessians,
+            "original_diagonal": np.diag(hessians),
         }
 
         new_dataset.add_systems([properties], [at])
@@ -154,8 +158,34 @@ def get_best_direction(atom, force):
     return best_delta
     
     
+def check_data():
+    dataset = ASEAtomsData(database_file)
     
+    properties = dataset.load_properties
+    properties = [prop for prop in properties if prop != "energy"]
 
+    n = 3
+    fig, axs = plt.subplots(len(properties), n, figsize=(10, 10))
+    for i in range(n):
+        atom = dataset[i]
+        for j, prop in enumerate(properties):
+            value = atom[prop]
+            if torch.numel(value) > 1:
+                if value.ndim == 1:
+                    value = value.unsqueeze(0)
+                axs[j, i].imshow(value)
+    
+    column_labels = [str(i) for i in range(n)]
+    row_labels = properties
+
+    for ax, col in zip(axs[0], column_labels):
+        ax.set_title(col)
+    
+    for ax, row in zip(axs[:,0], row_labels):
+        ax.set_ylabel(row, rotation=0, size="large", labelpad=50)
+
+    plt.tight_layout()
+    plt.show()
         
         
 
@@ -165,6 +195,9 @@ rmd17_data_path = data_directory + "rMD17\\rMD17.db"
 database_file = data_directory + "custom_database.db"
 model_file = os.getcwd() + "\\maxim\\best_inference_model"
 
-model = torch.load(model_file)
+model = ""
+# model = torch.load(model_file)
 
-create_databases()
+
+# create_databases()
+check_data()
