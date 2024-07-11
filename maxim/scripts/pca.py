@@ -17,25 +17,36 @@ def do_pca(data):
     for i in range(length):
         print(i)
         hessian = data.dataset[i]['original_hessian'].flatten()
+        hessian = np.array(hessian)
         hessians.append(hessian)
-    hessians = np.array(hessians)
+    hessians = np.array(hessians) # shape: (num_samples, 729)
     
     means = np.mean(hessians, axis=0)
     stds = np.std(hessians, axis=0)
     
     normalized_hessians = (hessians - means) / stds
     
-    cov = np.cov(normalized_hessians.T)
+    cov = np.cov(normalized_hessians.T) # shape: (729, 729)
+    plt.imshow(cov)
+    plt.show()
     
-    eigenvalues, eigenvectors = np.linalg.eig(cov)
+    eigenvalues, eigenvectors = np.linalg.eigh(cov) 
     
-    take = 10
+    idx = eigenvalues.argsort()[::-1]   
+    eigenvalues = eigenvalues[idx]
+    eigenvectors = eigenvectors[:,idx]
+
+    plt.plot(eigenvalues)
+    plt.show()
+
+    take = 20
     
-    eigenvectors = eigenvectors[:, :take]
+    eigenvectors = eigenvectors[:take, :]
     eigenvalues = eigenvalues[:take]
     
-    plt.bar(eigenvalues, height=1)
-    plt.show()
+    for i in range(10):
+        plt.imshow(eigenvectors[i].reshape(27, 27))
+        plt.show()
     
     return means, stds, eigenvectors, eigenvalues
     

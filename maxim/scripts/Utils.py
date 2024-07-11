@@ -31,7 +31,7 @@ def get_training_directory():
 
 def load_model(
     model_path: str = None,
-    device: torch.device = torch.device("cuda")
+    device: torch.device = "cuda" if torch.cuda.is_available() else "cpu"
 ):
     if model_path is None:
         model_path = os.path.join(get_training_directory(), "best_inference_model")

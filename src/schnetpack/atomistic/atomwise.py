@@ -8,7 +8,9 @@ import schnetpack as spk
 import schnetpack.nn as snn
 import schnetpack.properties as properties
 
-__all__ = ["Atomwise", "DipoleMoment", "Polarizability", "Hessian", "Hessian2", "Hessian3", "Hessian4", "Hessian5", "Hessian6", "NewtonStep", "BestDirection", "Forces2"]
+__all__ = ["Atomwise", "DipoleMoment", "Polarizability", 
+           "Hessian", "Hessian2", "Hessian3", "Hessian4", "Hessian5", "Hessian6", 
+           "NewtonStep", "BestDirection", "Forces2", "HessianDiagonal"]
 
 
 class Atomwise(nn.Module):
@@ -928,4 +930,56 @@ class Forces2(nn.Module):
         l1 = l1.squeeze(-1) # 90 x 3
         
         inputs[self.forces_copy_key] = l1
+        return inputs
+    
+
+class HessianDiagonal(nn.Module):
+    def __init__(
+        self,
+        n_in: int,
+        n_hidden: Optional[Union[int, Sequence[int]]] = None,
+        n_layers: int = 2,
+        activation: Callable = F.silu,
+        diagonal_key: str = "original_diagonal",
+    ):
+        super(HessianDiagonal, self).__init__()
+        self.n_in = n_in
+        self.n_layers = n_layers
+        self.n_hidden = n_hidden
+        self.diagonal_key = diagonal_key
+        self.model_outputs = [diagonal_key]
+    
+        self.outnet = spk.nn.build_gated_equivariant_mlp(
+            n_in=n_in,
+            n_out=1,
+            n_hidden=n_hidden,
+            n_layers=n_layers,
+            activation=activation,
+            sactivation=activation,
+        )
+        
+    def forward(self, inputs):
+        positions = inputs[properties.R] # 90 x 3
+        l0 = inputs["scalar_representation"] # 90 x 30
+        l1 = inputs["vector_representation"] # 90 x 3 x 30
+
+        l0, l1 = self.outnet((l0, l1)) # 90 x 1, 90 x 3 x 1
+        
+        l1 = l1.squeeze(-1) # 90 x 3
+        l1 = 1e3 * l1
+        
+        idx_m = inputs[properties.idx_m]
+        maxm = int(idx_m[-1]) + 1
+        diagonals = []
+        last = -1
+        for i, idx in enumerate(idx_m):
+            if idx == last:
+                diagonals[-1] = torch.cat([diagonals[-1], l1[i]], dim=0)
+            else:
+                diagonals.append(l1[i])
+                last = idx
+        diagonals = torch.stack(diagonals, dim=0) # 10 x 27
+
+        
+        inputs[self.diagonal_key] = diagonals.flatten() # 10*27
         return inputs

@@ -131,48 +131,48 @@ class AutoDiffWrapper(torch.nn.Module):
         super(AutoDiffWrapper, self).__init__()
         self.model = model
         self.inputs_template = inputs_template
-        
+
     def forward(self, positions):
         inputs = self.inputs_template.copy()
         inputs[spk.properties.R] = positions
         return self.model(inputs)["energy"]
-    
+
 class AutoDiffHessianStrategy(StrategyBase):
     def __init__(self, 
                  example_structure, 
                  line_search: bool = True,
                  muh: float = 1) -> None:
         super().__init__("AutoDiff Hessian", line_search)
-        
+
         converter = spk.interfaces.AtomsConverter(
             neighbor_list=trn.ASENeighborList(cutoff=5.0), dtype=torch.float32, device=device
         )
-        
+
         example_atoms = Atoms(
             numbers=example_structure[spk.properties.Z],
             positions=example_structure[spk.properties.R],
         )
         inputs_template = converter(example_atoms)
-        
+
         self.muh = muh
         self.wrapper = AutoDiffWrapper(energy_model, inputs_template)
-        
+
     def get_direction(self, inputs: Dict[str, torch.Tensor]) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         energy, forces = super().prepare_energy_and_forces(inputs)
-        
+
         inputs_copy = inputs.copy()
         hessian = torch.autograd.functional.hessian(self.wrapper, inputs_copy[spk.properties.R])
         hessian = hessian.to(dtype=torch.float64)
         hessian = torch.reshape(hessian, (27, 27))
         hessian += self.muh * torch.eye(27, device = device, dtype = torch.float64)
-        
+
         newton_step: torch.tensor = torch.linalg.solve(hessian, forces.flatten()).reshape(forces.shape)
         norm: torch.tensor = torch.linalg.norm(newton_step)
         direction: torch.tensor = newton_step / norm
         direction = direction.to(dtype=torch.float32)
-        
+
         return energy, forces, direction
-        
+    
 @dataclass(init = True, repr = True)
 class GradientDescentParameters:
     tolerance: float = 1e-2
@@ -328,7 +328,7 @@ def main():
         AutoDiffHessianStrategy(data.test_dataset[0])
     ]
 
-    for i in random.sample(range(len(data.test_dataset)), 4):
+    for i in random.sample(range(len(data.test_dataset)), 5):
         histories.append([])
         structure = data.test_dataset[i]
         atoms = Atoms(
@@ -354,10 +354,13 @@ def main():
 if __name__ == "__main__":
     device = "cpu"
     energy_model = load_model("energy_model", device=device)
+    # energy_model = load_model("jonas_all_forces", device=device)
+    # energy_model = load_model("jonas_forces_500_scfpy_loose", device=device)
+    # energy_model = load_model("jonas_hessian_500_loose", device=device)
     hessian_model = load_model("hessian1", device=device)
     newton_step_model = load_model("newton_step", device=device)
     inv_hessian_model = load_model("inv_hessian2", device=device)
     avg_hessian = torch.tensor(np.load(os.getcwd() + "\\maxim\\data\\avg_hessian.npy"), dtype=torch.float64, device=device)
 
-    # main()
-    hyperparameter_search(load_data())
+    main()
+    # hyperparameter_search(load_data())

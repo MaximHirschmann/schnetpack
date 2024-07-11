@@ -108,6 +108,46 @@ def plot(structure,
     plt.show()
 
 
+def plot2(structure, results, properties, showDiff = True):
+    ncols = 2 + showDiff
+    nrows = len(properties)
+
+    fig, axs = plt.subplots(nrows, ncols, figsize=(10, 5*nrows))
+
+    def add_subplot(axs, row, col, data, title, vmin=None, vmax=None):
+        if nrows == 1:
+            im = axs[col].imshow(data, cmap="viridis", vmin=vmin, vmax=vmax)
+            axs[col].set_title(title)
+            plt.colorbar(im, ax=axs[col])
+            return
+        else:
+            im = axs[row, col].imshow(data, cmap="viridis", vmin=vmin, vmax=vmax)
+            axs[row, col].set_title(title)
+            plt.colorbar(im, ax=axs[row, col])
+
+    def prepare_data(true_data, pred_data):
+        true_data, pred_data = true_data.cpu().numpy(), pred_data.cpu().detach().numpy()
+        if true_data.ndim == 1:
+            true_data = true_data[..., np.newaxis]
+        if pred_data.ndim == 1:
+            pred_data = pred_data[..., np.newaxis]            
+
+        return true_data, pred_data, min(true_data.min(), pred_data.min()), max(true_data.max(), pred_data.max())
+    
+    row = 0
+    for property in properties:
+        true_data, pred_data, vmin, vmax = prepare_data(structure[property], results[property])
+        
+        add_subplot(axs, row, 0, pred_data, f"Predicted {property}", vmin, vmax)
+        add_subplot(axs, row, 1, true_data, f"True {property}", vmin, vmax)
+        if showDiff:
+            add_subplot(axs, row, 2, true_data - pred_data, f"Difference", vmin, vmax)
+        row += 1
+
+    plt.tight_layout()
+    plt.show()
+
+
 def plot_structure(structure):
     positions = structure["_positions"].cpu().numpy()
     # forces = structure["forces"].cpu().numpy()

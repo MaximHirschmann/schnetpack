@@ -2,7 +2,7 @@
 import sys
 import os 
 from time import time
-from plotting import plot, plot_structure
+from plotting import plot, plot_structure, plot2
 from Utils import load_model, load_data
 
 
@@ -21,7 +21,7 @@ def get_training_directory():
 
 @logger
 def train(data):
-    epochs = 40
+    epochs = 10
     cutoff = 5.
     n_atom_basis = 30
 
@@ -42,6 +42,7 @@ def train(data):
     pred_forces_copy = spk.atomistic.Forces2(n_in = n_atom_basis, forces_copy_key = "forces_copy")
     pred_hessian = spk.atomistic.Hessian2(n_in = n_atom_basis, hessian_key = "hessian")
     pred_inv_hessian = spk.atomistic.Hessian2(n_in = n_atom_basis, hessian_key = "inv_hessian")
+    pred_diagonal = spk.atomistic.HessianDiagonal(n_in = n_atom_basis, diagonal_key = "original_diagonal")
 
     nnpot = spk.model.NeuralNetworkPotential(
         representation=paiNN,
@@ -49,11 +50,12 @@ def train(data):
         output_modules=[
             # pred_energy,
             # pred_forces, 
-            pred_hessian, 
-            pred_inv_hessian,
+            # pred_hessian, 
+            # pred_inv_hessian,
             # pred_newton_step,
             # pred_best_direction,
-            # pred_forces_copy
+            # pred_forces_copy,
+            pred_diagonal
             ],
         postprocessors=[
             trn.CastTo64(),
@@ -133,16 +135,26 @@ def train(data):
         }
     )
 
+    output_diagonal = spk.task.ModelOutput(
+        name="original_diagonal",
+        loss_fn=torch.nn.MSELoss(),
+        loss_weight=1,
+        metrics = {
+            "MAE": torchmetrics.MeanAbsoluteError()
+        }
+    )
+
     task = spk.task.AtomisticTask(
         model=nnpot,
         outputs=[
             # output_energy, 
             # output_forces, 
-            output_hessian, 
-            output_inv_hessian, 
+            # output_hessian, 
+            # output_inv_hessian, 
             # output_newton_step,
             # output_best_direction,
-            # output_forces_copy
+            # output_forces_copy,
+            output_diagonal
             ],
         optimizer_cls=torch.optim.AdamW,
         optimizer_args={"lr": 2e-4}
@@ -171,13 +183,15 @@ def train(data):
 
 @logger
 def evaluate_model(model, data, 
+        properties,
         showDiff=True,
-        plotForces=True,
-        plotNewtonStep=True,
-        plotHessians=True,
-        plotInverseHessians=True,
-        plotBestDirection=True,
-        plotForcesCopy=True):
+        # plotForces=True,
+        # plotNewtonStep=True,
+        # plotHessians=True,
+        # plotInverseHessians=True,
+        # plotBestDirection=True,
+        # plotForcesCopy=True
+        ):
     # set up converter
     converter = spk.interfaces.AtomsConverter(
         neighbor_list=trn.ASENeighborList(cutoff=5.0), dtype=torch.float32, device=device
@@ -194,8 +208,8 @@ def evaluate_model(model, data,
         results = model(inputs)
         
         if i < 10:
-            plot(structure, results, showDiff, plotForces, plotNewtonStep, plotHessians, plotInverseHessians, plotBestDirection, plotForcesCopy)
-
+            #plot(structure, results, showDiff, plotForces, plotNewtonStep, plotHessians, plotInverseHessians, plotBestDirection, plotForcesCopy)
+            plot2(structure, results, properties, showDiff = showDiff)
 
 @logger
 def calculate_average_hessian(data):
@@ -317,13 +331,14 @@ def main():
     model = load_model()
     
     loss = evaluate_model(model, data, 
+            properties = ["original_diagonal"],
             showDiff=True,
-            plotForces=False,
-            plotNewtonStep=False,
-            plotHessians=True,
-            plotInverseHessians=True,
-            plotBestDirection=False,
-            plotForcesCopy=False
+            # plotForces=False,
+            # plotNewtonStep=False,
+            # plotHessians=False,
+            # plotInverseHessians=False,
+            # plotBestDirection=False,
+            # plotForcesCopy=False
         )
     
     # compare_directions(model, data, compare = ["forces", "newton_step"])
