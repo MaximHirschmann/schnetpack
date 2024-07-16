@@ -104,6 +104,7 @@ def gradient_descent(
         counter += 1
         i += 1
     
+    time_history[0] = 0
     return GradientDescentResult(score_history, time_history)
     
     

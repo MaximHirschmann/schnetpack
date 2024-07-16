@@ -286,6 +286,48 @@ def plot_average(histories: List[List[str]], labels, title = "Average Energy His
     plt.legend()
     plt.show()
     
+def plot_average_over_time(
+    results, #: List[List[GradientDescentResult]] 
+    labels, 
+    title = "Average Energy History Over Time"):
+    timesteps = np.linspace(0, 3, 100) # from t = 0s to t = 10s with 100 timesteps
+    
+    # Transpose
+    results_by_strategy = [[] for _ in labels]
+    for i in results:
+        for j, result in enumerate(i):
+            results_by_strategy[j].append(result)
+    
+    averages = [np.zeros(len(timesteps)) for _ in labels]
+    for i, strategy_result in enumerate(results_by_strategy):
+        for result in strategy_result:
+            scores = [0]
+            i_timesteps = 0
+            i_history = 0
+            while i_timesteps < len(timesteps) and i_history < len(result.score_history):
+                if result.time_history[i_history] <= timesteps[i_timesteps]:
+                    scores[-1] = result.score_history[i_history]
+                    i_history += 1
+                else:
+                    scores.append(scores[-1])
+                    i_timesteps += 1
+            scores = scores[:len(timesteps)]
+            scores = scores + [scores[-1]] * (len(timesteps) - len(scores))
+            averages[i] += scores
+        averages[i] /= len(strategy_result)
+        
+    plt.figure()
+    for i, label in enumerate(labels):
+        plt.plot(timesteps, averages[i], label=label)
+        plt.xlabel("Time (s)")
+        plt.ylabel("Energy")
+        
+    plt.title(title)
+    plt.legend()
+    plt.show()
+    
+    
+            
 def plot_all_histories(histories: List[List[str]], labels, title = "All Energy Histories"):
     cols = 6
     fig, axs = plt.subplots(int(np.ceil(len(histories) / cols)), cols, figsize=(15, 15))
