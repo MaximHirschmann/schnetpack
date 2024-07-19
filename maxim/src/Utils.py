@@ -2,7 +2,6 @@
 import sys
 import os 
 from time import time
-from plotting import plot, plot_structure
 
 schnetpack_dir = os.getcwd()
 sys.path.insert(1, schnetpack_dir + "\\src")

@@ -180,7 +180,9 @@ device = "cpu"
 
 energy_model = load_model("energy_model", device=device)
 # energy_model = load_model("jonas_all_forces", device=device)
+# energy_model = load_model("jonas_forces_50_scfpy_loose_2", device=device)
 # energy_model = load_model("jonas_forces_500_scfpy_loose", device=device)
+# energy_model = load_model("jonas_hessian_50_loose_2", device=device)
 # energy_model = load_model("jonas_hessian_500_loose", device=device)
 hessian_model = load_model("hessian1", device=device)
 newton_step_model = load_model("newton_step", device=device)

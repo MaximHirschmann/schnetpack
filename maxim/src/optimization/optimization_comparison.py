@@ -14,7 +14,7 @@ import schnetpack.transform as trn
 from schnetpack.interfaces import SpkCalculator
 
 sys.path.insert(1, schnetpack_dir + "\\maxim\\src")
-from plotting  import plot_average, plot_all_histories, plot_average_over_time
+from plotting  import plot_average, plot_all_histories, plot_average_over_time, plot_true_values
 from Utils import load_data
 from strategies import *
 from gradient_descent import GradientDescentParameters, gradient_descent
@@ -44,7 +44,7 @@ def compare():
         AutoDiffHessianStrategy(data.test_dataset[0])
     ]
 
-    N = 20
+    N = 10
     for i in random.sample(range(len(data.test_dataset)), N):
         histories.append([])
         results.append([])
@@ -65,9 +65,11 @@ def compare():
         print()
 
     labels = [strategy.name for strategy in strategies]
-    plot_average(histories, labels)
-    plot_all_histories(histories, labels)
-    plot_average_over_time(results, labels)
+    # plot_average(histories, labels)
+    # plot_all_histories(histories, labels)
+    # plot_average_over_time(results, labels)
+    plot_true_values(results, labels)
+    
     
 
 

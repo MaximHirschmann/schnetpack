@@ -1,3 +1,12 @@
+import sys
+import os 
+
+schnetpack_dir = os.getcwd()
+
+sys.path.insert(1, schnetpack_dir + "\\maxim\\src")
+from optimization.best_evaluate import best_evaluate
+
+
 from typing import List
 import matplotlib.pyplot as plt
 import numpy as np
@@ -264,6 +273,7 @@ def plot_atoms(list_of_atoms):
     plt.show()
     
     
+
 def plot_average(histories: List[List[str]], labels, title = "Average Energy History"):
     # convert each history to numpy array and make them the same length
     max_length = max([len(history) for history in histories[0]])
@@ -290,7 +300,7 @@ def plot_average_over_time(
     results, #: List[List[GradientDescentResult]] 
     labels, 
     title = "Average Energy History Over Time"):
-    timesteps = np.linspace(0, 3, 100) # from t = 0s to t = 10s with 100 timesteps
+    timesteps = np.linspace(0, 10, 100) # from t = 0s to t = 10s with 100 timesteps
     
     # Transpose
     results_by_strategy = [[] for _ in labels]
@@ -345,3 +355,34 @@ def plot_all_histories(histories: List[List[str]], labels, title = "All Energy H
     plt.suptitle(title)
     plt.show()
         
+def plot_true_values(results, labels):
+    title = "Final positions evaluated by best model"
+    
+    final_internal_values = np.zeros(len(results[0]))
+    final_global_values = np.zeros(len(results[0]))
+    for i in range(len(results)):
+        for j in range(len(results[i])):
+            final_internal_values[j] += results[i][j].score_history[-1]
+            final_global_values[j] += best_evaluate(results[i][j].final_atom)
+    final_internal_values /= len(results)
+    final_global_values /= len(results)
+    
+    final_global_values += 97_080
+    final_global_values /= 500
+    
+    
+    # bar plot
+    fig, axs = plt.subplots()
+    
+    rect1 = axs.bar(np.arange(len(labels)), final_internal_values, 0.35, label="Internal")
+    rect2 = axs.bar(np.arange(len(labels)) + 0.35, final_global_values, 0.35, label="Global")
+    
+    axs.set_xticks(np.arange(len(labels)))
+    axs.set_xticklabels(labels)
+    axs.set_title(title)
+    axs.legend()
+    plt.show()
+    
+    
+    
+    

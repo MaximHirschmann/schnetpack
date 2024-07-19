@@ -33,9 +33,10 @@ class GradientDescentParameters:
     
 
 class GradientDescentResult:
-    def __init__(self, score_history: list, time_history: list):
+    def __init__(self, score_history: list, time_history: list, final_atom: Atoms) -> None:
         self.score_history = score_history
         self.time_history = time_history
+        self.final_atom = final_atom
         
         self.total_time = time_history[-1]
         self.total_steps = len(score_history)
@@ -71,10 +72,8 @@ def gradient_descent(
         
         if i > 100:
             break
-        elif step_size < params.tolerance:
-            counter += 1
-            if counter == 10:
-                break
+        elif len(score_history) > 10 and (score_history[-1] - score_history[-10]) / score_history[-10] < params.tolerance:
+            break
         else:
             counter = 0
             
@@ -105,7 +104,10 @@ def gradient_descent(
         i += 1
     
     time_history[0] = 0
-    return GradientDescentResult(score_history, time_history)
+    final_atom = atoms
+    final_atom.positions = inputs[spk.properties.R].detach().numpy()
+    
+    return GradientDescentResult(score_history, time_history, final_atom)
     
     
 device = "cpu"
