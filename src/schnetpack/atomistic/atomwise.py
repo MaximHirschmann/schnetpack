@@ -9,8 +9,8 @@ import schnetpack.nn as snn
 import schnetpack.properties as properties
 
 __all__ = ["Atomwise", "DipoleMoment", "Polarizability", 
-           "Hessian", "Hessian2", "Hessian3", "Hessian4", "Hessian5", "Hessian6", 
-           "NewtonStep", "BestDirection", "Forces2", "HessianDiagonal"]
+           "Hessian", "Hessian2", "Hessian3", "Hessian4", "Hessian5", "Hessian6", "Hessian7",
+           "NewtonStep", "BestDirection", "Forces2", "HessianDiagonal", "HessianDiagonal2"]
 
 
 class Atomwise(nn.Module):
@@ -565,8 +565,11 @@ class Hessian4(nn.Module):
             sactivation=activation,
         )
         
+        
         self.fnn = nn.Sequential(
             nn.Linear(3 + 3 + 3 + 3 + 1 + 1, 30),
+            nn.SiLU(),
+            nn.Linear(30, 30),
             nn.SiLU(),
             nn.Linear(30, 9)
         )
@@ -603,8 +606,8 @@ class Hessian4(nn.Module):
             
             # concatenate
             mini_hessian = torch.cat((s_i, v_i, r_i), dim=1) # (n_atom * n_atom) x 14
-            mini_hessian = self.fnn(mini_hessian).view(n_atom, n_atom, 3, 3) # n_atom x n_atom x 3 x 3
-            mini_hessian = mini_hessian.permute(0, 2, 1, 3).reshape(n_atom * 3, n_atom * 3) # (3 * n_atom) x (3 * n_atom)
+            mini_hessian = self.fnn(mini_hessian) # (n_atom * n_atom) x 9
+            mini_hessian = mini_hessian.view(n_atom, n_atom, 3, 3).permute(0, 2, 1, 3).reshape(n_atom * 3, n_atom * 3) # (3 * n_atom) x (3 * n_atom)
             
             hessians.append(mini_hessian)
             
@@ -801,7 +804,88 @@ class Hessian6(nn.Module):
         inputs[self.hessian_key] = hessians
         return inputs
     
+class Hessian7(nn.Module):
+    def __init__(
+        self,
+        n_in: int,
+        n_hidden: Optional[Union[int, Sequence[int]]] = None,
+        n_layers: int = 2,
+        activation: Callable = F.silu,
+        hessian_key: str = properties.hessian,
+    ):
+        super(Hessian7, self).__init__()
+        self.n_in = n_in
+        self.n_layers = n_layers
+        self.n_hidden = n_hidden
+        self.hessian_key = hessian_key
+        self.model_outputs = [hessian_key]
+    
+        self.outnet = spk.nn.build_gated_equivariant_mlp(
+            n_in=n_in,
+            n_out=3,
+            n_hidden=n_hidden,
+            n_layers=n_layers,
+            activation=activation,
+            sactivation=activation,
+        )
+        
+        self.fnn = nn.Sequential(
+            nn.Linear(6 + 8 * n_in, 10),
+            nn.SiLU(),
+            nn.Linear(10, 3 * 3)
+        )
+        
+        
+    def forward(self, inputs):
+        # Features F = 30
+        positions = inputs[properties.R] # 90 x 3
+        l0 = inputs["scalar_representation"] # 90 x F
+        l1 = inputs["vector_representation"] # 90 x 3 x F
 
+        
+        n_atoms = inputs[properties.n_atoms]
+        hessians: List[torch.Tensor] = []
+        
+        indices = torch.cumsum(n_atoms, dim=0) - n_atoms
+        for start_idx, n_atom in zip(indices, n_atoms):
+            end_idx = start_idx + n_atom
+            
+            i, j = torch.meshgrid(torch.arange(n_atom), torch.arange(n_atom), indexing='ij')
+            pairs = torch.stack((i.flatten(), j.flatten()), dim=1)
+            
+            s_i = l0[start_idx:end_idx].squeeze(-1) # n_atom x F
+            s_i = s_i[pairs] # (n_atom * n_atom) x 2 x F
+            
+            v_i = l1[start_idx:end_idx] # n_atom x 3 x F
+            v_i = v_i[pairs] # (n_atom * n_atom) x 2 x 3 x F
+            
+            r_i = positions[start_idx:end_idx] # n_atom x 3
+            r_i = r_i[pairs]
+            
+            s_atom1 = s_i[:, 0] # (n_atom * n_atom) x F
+            s_atom2 = s_i[:, 1] # (n_atom * n_atom) x F
+            v_atom1 = v_i[:, 0].reshape(n_atom * n_atom, 3 * self.n_in) # (n_atom * n_atom) x 3 * F
+            v_atom2 = v_i[:, 1].reshape(n_atom * n_atom, 3 * self.n_in) # (n_atom * n_atom) x 3 * F
+            r_atom1 = r_i[:, 0].reshape(n_atom * n_atom, 3) # (n_atom * n_atom) x 3
+            r_atom2 = r_i[:, 1].reshape(n_atom * n_atom, 3) # (n_atom * n_atom) x 3
+            
+            mini_hessian = torch.cat((s_atom1, s_atom2, v_atom1, v_atom2, r_atom1, r_atom2), dim=1) # (n_atom * n_atom) x 8 * F
+            mini_hessian = self.fnn(mini_hessian).reshape(n_atom * n_atom, 3, 3) # (n_atom * n_atom) x 3 x 3
+            
+            hessian = torch.zeros((n_atom * 3, n_atom * 3), device=mini_hessian.device)
+            for i in range(n_atom * n_atom):
+                x = (i // n_atom) * 3
+                y = (i % n_atom) * 3
+                hessian[x:x+3, y:y+3] = mini_hessian[i]
+                
+            hessians.append(hessian)
+        
+        hessians = torch.stack(hessians, dim = 0).view(-1, 27)
+        
+        inputs[self.hessian_key] = hessians
+        return inputs
+    
+    
 class NewtonStep(nn.Module):
     def __init__(
         self,
@@ -980,6 +1064,63 @@ class HessianDiagonal(nn.Module):
                 last = idx
         diagonals = torch.stack(diagonals, dim=0) # 10 x 27
 
+        
+        inputs[self.diagonal_key] = diagonals.flatten() # 10*27
+        return inputs
+    
+
+class HessianDiagonal2(nn.Module):
+    def __init__(
+        self,
+        n_in: int,
+        n_hidden: Optional[Union[int, Sequence[int]]] = None,
+        n_layers: int = 2,
+        activation: Callable = F.silu,
+        diagonal_key: str = "original_diagonal",
+    ):
+        super(HessianDiagonal2, self).__init__()
+        self.n_in = n_in
+        self.n_layers = n_layers
+        self.n_hidden = n_hidden
+        self.diagonal_key = diagonal_key
+        self.model_outputs = [diagonal_key]
+    
+        self.outnet = spk.nn.build_gated_equivariant_mlp(
+            n_in=n_in,
+            n_out=1,
+            n_hidden=n_hidden,
+            n_layers=n_layers,
+            activation=activation,
+            sactivation=activation,
+        )
+        
+        self.dnn = nn.Sequential(
+            nn.Linear(7, 10),
+            nn.SiLU(),
+            nn.Linear(10, 3)
+        )
+        
+    def forward(self, inputs):
+        positions = inputs[properties.R] # 90 x 3
+        l0 = inputs["scalar_representation"] # 90 x 30
+        l1 = inputs["vector_representation"] # 90 x 3 x 30
+
+        l0, l1 = self.outnet((l0, l1)) # 90 x 1, 90 x 3 x 1
+        
+        l1 = l1.squeeze(-1) # 90 x 3
+        
+        idx_m = inputs[properties.idx_m]
+        diagonals = []
+        last = -1
+        for i, idx in enumerate(idx_m):
+            concatted = torch.cat([l1[i], positions[i], l0[i]], dim=0)
+            values = self.dnn(concatted)
+            if idx == last:
+                diagonals[-1] = torch.cat([diagonals[-1], values], dim=0)
+            else:
+                diagonals.append(values)
+                last = idx
+        diagonals = torch.stack(diagonals, dim=0) # 10 x 27
         
         inputs[self.diagonal_key] = diagonals.flatten() # 10*27
         return inputs

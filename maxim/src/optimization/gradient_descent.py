@@ -23,7 +23,7 @@ from time import time
 
 @dataclass(init = True, repr = True)
 class GradientDescentParameters:
-    tolerance: float = 1e-2
+    tolerance: float = 5e-3
     max_step_size: float = 0.05
     rho_pos: float = 1.2
     rho_neg: float = 0.5
@@ -72,7 +72,7 @@ def gradient_descent(
         
         if i > 100:
             break
-        elif len(score_history) > 10 and (score_history[-1] - score_history[-10]) / score_history[-10] < params.tolerance:
+        elif len(score_history) > 10 and step_size < params.tolerance:
             break
         else:
             counter = 0

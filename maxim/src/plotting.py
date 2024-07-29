@@ -299,8 +299,10 @@ def plot_average(histories: List[List[str]], labels, title = "Average Energy His
 def plot_average_over_time(
     results, #: List[List[GradientDescentResult]] 
     labels, 
-    title = "Average Energy History Over Time"):
-    timesteps = np.linspace(0, 10, 100) # from t = 0s to t = 10s with 100 timesteps
+    title = "Average Energy History Over Time",
+    timeframe = 3):
+    
+    timesteps = np.linspace(0, timeframe, 100) # from t = 0s to t = 10s with 100 timesteps
     
     # Transpose
     results_by_strategy = [[] for _ in labels]
@@ -355,11 +357,13 @@ def plot_all_histories(histories: List[List[str]], labels, title = "All Energy H
     plt.suptitle(title)
     plt.show()
         
-def plot_true_values(results, labels):
+def plot_true_values(results, labels, base_atom, base_internal_energy):
     title = "Final positions evaluated by best model"
+    labels = labels + ["Base"]
     
-    final_internal_values = np.zeros(len(results[0]))
-    final_global_values = np.zeros(len(results[0]))
+    length = len(results[0]) + 1
+    final_internal_values = np.zeros(length)
+    final_global_values = np.zeros(length)
     for i in range(len(results)):
         for j in range(len(results[i])):
             final_internal_values[j] += results[i][j].score_history[-1]
@@ -367,21 +371,46 @@ def plot_true_values(results, labels):
     final_internal_values /= len(results)
     final_global_values /= len(results)
     
-    final_global_values += 97_080
-    final_global_values /= 500
+    final_internal_values[-1] = base_internal_energy
+    final_global_values[-1] = best_evaluate(base_atom)
     
+    # display two bar plots
+    fig, axs = plt.subplots(2, 1, figsize=(10, 10))
     
-    # bar plot
-    fig, axs = plt.subplots()
+    rect1 = axs[0].bar(np.arange(length), final_internal_values, 0.35, label="Internal")
+    rect2 = axs[1].bar(np.arange(length), final_global_values, 0.35, label="Global")
     
-    rect1 = axs.bar(np.arange(len(labels)), final_internal_values, 0.35, label="Internal")
-    rect2 = axs.bar(np.arange(len(labels)) + 0.35, final_global_values, 0.35, label="Global")
+    axs[0].set_xticks(np.arange(length))
+    axs[0].set_xticklabels(labels)
+    axs[0].set_title(title)
+    # set y limit
+    axs[0].set_ylim([final_internal_values.min(), final_internal_values.max()])
     
-    axs.set_xticks(np.arange(len(labels)))
-    axs.set_xticklabels(labels)
-    axs.set_title(title)
-    axs.legend()
+    axs[1].set_xticks(np.arange(length))
+    axs[1].set_xticklabels(labels)
+    axs[1].set_ylim([final_global_values.min(), final_global_values.max()])
+    
+    # different colors
+    for i in range(len(rect1)):
+        rect1[i].set_color('C0')
+        rect2[i].set_color('C1')
+        
+    axs[0].legend()
+    axs[1].legend()
     plt.show()
+        
+        
+    # bar plot
+    # fig, axs = plt.subplots()
+    
+    # rect1 = axs.bar(np.arange(len(labels)), final_internal_values, 0.35, label="Internal")
+    # rect2 = axs.bar(np.arange(len(labels)) + 0.35, final_global_values, 0.35, label="Global")
+    
+    # axs.set_xticks(np.arange(len(labels)))
+    # axs.set_xticklabels(labels)
+    # axs.set_title(title)
+    # axs.legend()
+    # plt.show()
     
     
     

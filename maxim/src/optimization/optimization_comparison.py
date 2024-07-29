@@ -41,11 +41,12 @@ def compare():
         NewtonStepStrategy(),
         InvHessianStrategy(),
         AvgHessianStrategy(),
-        AutoDiffHessianStrategy(data.test_dataset[0])
+        AutoDiffHessianStrategy(data.test_dataset[0]),
+        DiagonalStrategy()
     ]
 
-    N = 10
-    for i in random.sample(range(len(data.test_dataset)), N):
+    N = 15
+    for idx, i in enumerate(random.sample(range(len(data.test_dataset)), N)):
         histories.append([])
         results.append([])
         structure = data.test_dataset[i]
@@ -55,6 +56,7 @@ def compare():
         )
 
         energy_0, _ = StrategyBase().prepare_energy_and_forces(converter(atoms))
+        print("Structure", idx)
         print(f"Initial energy: {energy_0.item()}")
         for strategy in strategies:
             result, t = gradient_descent(atoms.copy(), strategy)
@@ -65,10 +67,10 @@ def compare():
         print()
 
     labels = [strategy.name for strategy in strategies]
-    # plot_average(histories, labels)
-    # plot_all_histories(histories, labels)
-    # plot_average_over_time(results, labels)
-    plot_true_values(results, labels)
+    plot_average(histories, labels)
+    plot_all_histories(histories, labels)
+    plot_average_over_time(results, labels)
+    plot_true_values(results, labels, atoms.copy(), energy_0)
     
     
 

@@ -171,6 +171,25 @@ class AutoDiffHessianStrategy(StrategyBase):
 
         return energy, forces, direction
     
+class DiagonalStrategy(StrategyBase):
+    def __init__(self, line_search: bool = True) -> None:
+        super().__init__("Diagonal", line_search)
+    
+    def get_direction(self, inputs: Dict[str, torch.Tensor]) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        energy, forces = super().prepare_energy_and_forces(inputs)
+        
+        inputs_copy = inputs.copy()
+        inputs_copy = diagonal_model(inputs_copy)
+        diagonal: torch.Tensor = inputs_copy["original_diagonal"]
+        inv_diagonal: torch.Tensor = 1 / diagonal
+        
+        newton_step: torch.Tensor = (inv_diagonal * forces.flatten()).reshape(forces.shape)
+        norm = torch.linalg.norm(newton_step)
+        direction: torch.Tensor = newton_step / norm
+        direction = direction.to(dtype=torch.float32)
+        
+        return energy, forces, direction
+    
 """
 --------------------------  GLOBAL VARIABLES -------------------------
 """
@@ -187,4 +206,5 @@ energy_model = load_model("energy_model", device=device)
 hessian_model = load_model("hessian1", device=device)
 newton_step_model = load_model("newton_step", device=device)
 inv_hessian_model = load_model("inv_hessian2", device=device)
+diagonal_model = load_model("diagonal2", device=device)
 avg_hessian = torch.tensor(np.load(os.getcwd() + "\\maxim\\data\\avg_hessian.npy"), dtype=torch.float64, device=device)

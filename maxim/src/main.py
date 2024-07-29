@@ -21,7 +21,7 @@ def get_training_directory():
 
 @logger
 def train(data):
-    epochs = 10
+    epochs = 20
     cutoff = 5.
     n_atom_basis = 30
 
@@ -40,22 +40,24 @@ def train(data):
     pred_newton_step = spk.atomistic.NewtonStep(n_in = n_atom_basis, newton_step_key = "newton_step")
     pred_best_direction = spk.atomistic.BestDirection(n_in = n_atom_basis, best_direction_key = "best_direction")
     pred_forces_copy = spk.atomistic.Forces2(n_in = n_atom_basis, forces_copy_key = "forces_copy")
-    pred_hessian = spk.atomistic.Hessian2(n_in = n_atom_basis, hessian_key = "hessian")
+    # pred_hessian = spk.atomistic.Hessian2(n_in = n_atom_basis, hessian_key = "hessian")
+    pred_hessian = spk.atomistic.Hessian7(n_in = n_atom_basis, hessian_key = "hessian")
     pred_inv_hessian = spk.atomistic.Hessian2(n_in = n_atom_basis, hessian_key = "inv_hessian")
-    pred_diagonal = spk.atomistic.HessianDiagonal(n_in = n_atom_basis, diagonal_key = "original_diagonal")
-
+    # pred_diagonal = spk.atomistic.HessianDiagonal(n_in = n_atom_basis, diagonal_key = "original_diagonal")
+    pred_diagonal = spk.atomistic.HessianDiagonal2(n_in = n_atom_basis, diagonal_key = "original_diagonal")
+    
     nnpot = spk.model.NeuralNetworkPotential(
         representation=paiNN,
         input_modules=[pairwise_distance],
         output_modules=[
             # pred_energy,
             # pred_forces, 
-            # pred_hessian, 
+            pred_hessian,
             # pred_inv_hessian,
             # pred_newton_step,
             # pred_best_direction,
             # pred_forces_copy,
-            pred_diagonal
+            # pred_diagonal
             ],
         postprocessors=[
             trn.CastTo64(),
@@ -149,12 +151,12 @@ def train(data):
         outputs=[
             # output_energy, 
             # output_forces, 
-            # output_hessian, 
+            output_hessian, 
             # output_inv_hessian, 
             # output_newton_step,
             # output_best_direction,
             # output_forces_copy,
-            output_diagonal
+            # output_diagonal
             ],
         optimizer_cls=torch.optim.AdamW,
         optimizer_args={"lr": 2e-4}
@@ -331,7 +333,7 @@ def main():
     model = load_model()
     
     loss = evaluate_model(model, data, 
-            properties = ["original_diagonal"],
+            properties = ["hessian"],
             showDiff=True,
             # plotForces=False,
             # plotNewtonStep=False,
