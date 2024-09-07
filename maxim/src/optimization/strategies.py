@@ -51,14 +51,15 @@ class ForcesStrategy(StrategyBase):
     
     
 class HessianStrategy(StrategyBase):
-    def __init__(self, line_search: bool = True) -> None:
-        super().__init__("hessian", line_search)
+    def __init__(self, model, name = "hessian", line_search: bool = True) -> None:
+        super().__init__(name, line_search)
+        self.model = model
     
     def get_direction(self, inputs: Dict[str, torch.Tensor]) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         energy, forces = super().prepare_energy_and_forces(inputs)
         
         inputs_copy = inputs.copy()
-        inputs_copy = hessian_model(inputs_copy)
+        inputs_copy = self.model(inputs_copy)
         hessian: torch.Tensor = inputs_copy["hessian"]
         hessian = hessian / torch.linalg.norm(hessian)
         
@@ -204,6 +205,7 @@ energy_model = load_model("energy_model", device=device)
 # energy_model = load_model("jonas_hessian_50_loose_2", device=device)
 # energy_model = load_model("jonas_hessian_500_loose", device=device)
 hessian_model = load_model("hessian1", device=device)
+hessian_model_kronecker = load_model("hessian_kronecker", device=device)
 newton_step_model = load_model("newton_step", device=device)
 inv_hessian_model = load_model("inv_hessian2", device=device)
 diagonal_model = load_model("diagonal2", device=device)

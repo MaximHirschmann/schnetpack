@@ -25,7 +25,7 @@ def timed(func):
     return wrapper
 
 def get_training_directory():
-    return os.path.join(os.getcwd(), "training\\logs")
+    return os.path.join(schnetpack_dir, "training\\logs")
 
 
 def load_model(
@@ -36,7 +36,7 @@ def load_model(
         model_path = os.path.join(get_training_directory(), "best_inference_model")
 
     if not "\\" in model_path and not "/" in model_path:
-        model_path = os.getcwd() + "\\maxim\\models\\" + model_path
+        model_path = schnetpack_dir + "\\maxim\\models\\" + model_path
         
     # load model
     best_model = torch.load(model_path, map_location=device)
@@ -45,8 +45,8 @@ def load_model(
 
 
 def load_data():
-    # filepath_hessian_db = os.path.join(os.getcwd(), 'maxim\\data\\ene_grad_hess_1000eth\\data.db')
-    filepath_hessian_db = os.path.join(os.getcwd(), "maxim\\data\\custom_database.db")
+    # filepath_hessian_db = os.path.join(schnetpack_dir, 'maxim\\data\\ene_grad_hess_1000eth\\data.db')
+    filepath_hessian_db = os.path.join(schnetpack_dir, "maxim\\data\\custom_database.db")
     print(filepath_hessian_db)
 
     hessianData = spk.data.AtomsDataModule(

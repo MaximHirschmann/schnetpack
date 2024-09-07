@@ -21,7 +21,7 @@ def get_training_directory():
 
 @logger
 def train(data):
-    epochs = 20
+    epochs = 50
     cutoff = 5.
     n_atom_basis = 30
 
@@ -41,7 +41,7 @@ def train(data):
     pred_best_direction = spk.atomistic.BestDirection(n_in = n_atom_basis, best_direction_key = "best_direction")
     pred_forces_copy = spk.atomistic.Forces2(n_in = n_atom_basis, forces_copy_key = "forces_copy")
     # pred_hessian = spk.atomistic.Hessian2(n_in = n_atom_basis, hessian_key = "hessian")
-    pred_hessian = spk.atomistic.Hessian7(n_in = n_atom_basis, hessian_key = "hessian")
+    pred_hessian = spk.atomistic.Hessian6(n_in = n_atom_basis, hessian_key = "hessian")
     pred_inv_hessian = spk.atomistic.Hessian2(n_in = n_atom_basis, hessian_key = "inv_hessian")
     # pred_diagonal = spk.atomistic.HessianDiagonal(n_in = n_atom_basis, diagonal_key = "original_diagonal")
     pred_diagonal = spk.atomistic.HessianDiagonal2(n_in = n_atom_basis, diagonal_key = "original_diagonal")
@@ -159,7 +159,7 @@ def train(data):
             # output_diagonal
             ],
         optimizer_cls=torch.optim.AdamW,
-        optimizer_args={"lr": 2e-4}
+        optimizer_args={"lr": 2e-3}
     )
 
     filepath_model = os.path.join(get_training_directory(), "best_inference_model")
@@ -212,6 +212,29 @@ def evaluate_model(model, data,
         if i < 10:
             #plot(structure, results, showDiff, plotForces, plotNewtonStep, plotHessians, plotInverseHessians, plotBestDirection, plotForcesCopy)
             plot2(structure, results, properties, showDiff = showDiff)
+
+@logger
+def plot_kronecker_products(model, data):
+    converter = spk.interfaces.AtomsConverter(
+        neighbor_list=trn.ASENeighborList(cutoff=5.0), dtype=torch.float32, device=device
+    )
+    
+    for i in range(5):
+        structure = data.test_dataset[i]
+        atoms = Atoms(
+            numbers=structure[spk.properties.Z], positions=structure[spk.properties.R]
+        )
+
+        inputs = converter(atoms)
+
+        # prepare representations in inputs
+        inputs = model.initialize_derivatives(inputs)
+        for m in model.input_modules:
+            inputs = m(inputs)
+        inputs = model.representation(inputs)
+
+        model.output_modules[0].plot_kronecker_products(inputs)
+
 
 @logger
 def calculate_average_hessian(data):
@@ -322,7 +345,7 @@ def main():
     
     # calculate_average_newton_step(data)
     
-    train(data)
+    # train(data)
     
     # model_name = "newton_step_model"
     # model_path = os.getcwd() + "\\maxim\\models\\" + model_name
@@ -330,19 +353,18 @@ def main():
     #     model_path
     # )
     
-    model = load_model()
+    model = load_model("hessian_kronecker")
+
+    # matrix = model.output_modules[0].offset_matrix.detach().cpu().numpy()
+
+    # loss = evaluate_model(model, data, 
+    #         properties = ["hessian"],
+    #         showDiff=True,
+    #     )
     
-    loss = evaluate_model(model, data, 
-            properties = ["hessian"],
-            showDiff=True,
-            # plotForces=False,
-            # plotNewtonStep=False,
-            # plotHessians=False,
-            # plotInverseHessians=False,
-            # plotBestDirection=False,
-            # plotForcesCopy=False
-        )
     
+    plot_kronecker_products(model, data)
+
     # compare_directions(model, data, compare = ["forces", "newton_step"])
     
     # calculate_average_hessian(data)

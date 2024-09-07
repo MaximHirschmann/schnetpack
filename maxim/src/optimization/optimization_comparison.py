@@ -35,9 +35,13 @@ def compare():
     histories = []
     results = []
     
+    hessian_model = load_model("hessian1", device=device)
+    hessian_model_kronecker = load_model("hessian_kronecker", device=device)
+
     strategies = [
         ForcesStrategy(),
-        HessianStrategy(),
+        HessianStrategy(hessian_model, name = "hessian"),
+        HessianStrategy(hessian_model_kronecker, name = "hessian_kronecker"),
         NewtonStepStrategy(),
         InvHessianStrategy(),
         AvgHessianStrategy(),

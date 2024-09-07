@@ -139,9 +139,16 @@ def plot2(structure, results, properties, showDiff = True):
         if true_data.ndim == 1:
             true_data = true_data[..., np.newaxis]
         if pred_data.ndim == 1:
-            pred_data = pred_data[..., np.newaxis]            
+            pred_data = pred_data[..., np.newaxis]
+        
+        vmin = min(true_data.min(), pred_data.min())
+        vmax = max(true_data.max(), pred_data.max())
+        
+        if -1 < vmin < 0 and 0 < vmax < 1:
+            vmin = -0.75
+            vmax = 0.75
 
-        return true_data, pred_data, min(true_data.min(), pred_data.min()), max(true_data.max(), pred_data.max())
+        return true_data, pred_data, vmin, vmax
     
     row = 0
     for property in properties:

@@ -15,6 +15,9 @@ from Utils import load_model
 import torch
 
 def best_evaluate(atoms):
+    device = "cpu"
+    best_energy_model = load_model("jonas_all_forces", device=device)
+    
     converter = spk.interfaces.AtomsConverter(
         neighbor_list=trn.ASENeighborList(cutoff=5.0), dtype=torch.float32, device=device
     )
@@ -22,6 +25,3 @@ def best_evaluate(atoms):
     result = best_energy_model(inputs.copy())
     
     return result["energy"]
-
-device = "cpu"
-best_energy_model = load_model("jonas_all_forces", device=device)

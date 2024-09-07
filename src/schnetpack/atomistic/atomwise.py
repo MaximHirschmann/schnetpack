@@ -725,41 +725,17 @@ class Hessian6(nn.Module):
         self.hessian_key = hessian_key
         self.model_outputs = [hessian_key]
     
+        self.n_out = 30 # has to be even
         self.outnet = spk.nn.build_gated_equivariant_mlp(
             n_in=n_in,
-            n_out=1,
+            n_out=self.n_out,
             n_hidden=n_hidden,
             n_layers=n_layers,
             activation=activation,
             sactivation=activation,
         )
-        self.fnn_v_v = nn.Sequential(
-            nn.Linear(9, 30),
-            nn.SiLU(),
-            nn.Linear(30, 9)
-        )
-        
-        self.fnn_v_r = nn.Sequential(
-            nn.Linear(9, 30),
-            nn.SiLU(),
-            nn.Linear(30, 9)
-        )
-        
-        self.fnn_s = nn.Sequential(
-            nn.Linear(2, 30),
-            nn.SiLU(),
-            nn.Linear(30, 9)
-        )
-        
-        self.fnn_h = nn.Sequential(
-            nn.Linear(9, 30),
-            nn.SiLU(),
-            nn.Linear(30, 9)
-        )
-        
-        self.fnn_final = nn.Sequential(
-            nn.Linear(27 * 27, 27 * 27)
-        )
+
+        self.offset_matrix = torch.nn.Parameter(torch.randn(27, 27))
         
         
     def forward(self, inputs):
@@ -767,9 +743,7 @@ class Hessian6(nn.Module):
         l0 = inputs["scalar_representation"] # 90 x 30
         l1 = inputs["vector_representation"] # 90 x 3 x 30
 
-        l0, l1 = self.outnet((l0, l1)) # 90 x 1, 90 x 3 x 1
-        
-        l1 = l1.squeeze(-1) # 90 x 3
+        l0, l1 = self.outnet((l0, l1)) # 90 x n_out, 90 x 3 x n_out
         
         n_atoms = inputs[properties.n_atoms]
         hessians: List[torch.Tensor] = []
@@ -777,33 +751,51 @@ class Hessian6(nn.Module):
         indices = torch.cumsum(n_atoms, dim=0) - n_atoms
         for start_idx, n_atom in zip(indices, n_atoms):
             end_idx = start_idx + n_atom
-            
-            v_v_i = torch.einsum('ik,jl->ijkl', l1[start_idx:end_idx], l1[start_idx:end_idx]) # n_atom x n_atom x 3 x 3
-            v_r_i = torch.einsum('ik,jl->ijkl', l1[start_idx:end_idx], positions[start_idx:end_idx]) # n_atom x n_atom x 3 x 3
-            
-            v_v_i = self.fnn_v_v(v_v_i.contiguous().view(-1, 9)).view(n_atom, n_atom, 3, 3) # n_atom x n_atom x 3 x 3
-            v_r_i = self.fnn_v_r(v_r_i.contiguous().view(-1, 9)).view(n_atom, n_atom, 3, 3) # n_atom x n_atom x 3 x 3
-            
-            i, j = torch.meshgrid(torch.arange(n_atom), torch.arange(n_atom), indexing='ij')
-            pairs = torch.stack((i.flatten(), j.flatten()), dim=1)
-            s_i = l0[start_idx:end_idx].squeeze(-1) # n_atom
-            s_i = s_i[pairs] # (n_atom * n_atom) x 2
-            s_i = self.fnn_s(s_i).view(n_atom, n_atom, 3, 3) # n_atom x n_atom x 3 x 3
-            
-            mini_hessian = v_v_i + v_r_i + s_i # n_atom x n_atom x 3 x 3
-            mini_hessian = self.fnn_h(mini_hessian.contiguous().view(-1, 9)).view(n_atom, n_atom, 3, 3) # n_atom x n_atom x 3 x 3
-            mini_hessian = mini_hessian.permute(0, 2, 1, 3).reshape(n_atom * 3, n_atom * 3) # (3 * n_atom) x (3 * n_atom)
-            
-            mini_hessian = self.fnn_final(mini_hessian.view(-1, 27 * 27)).view(n_atom * 3, n_atom * 3)
-            
-            hessians.append(mini_hessian)
-            
-        # ethanol specific reshape
-        hessians = torch.stack(hessians, dim = 0).view(-1, 27)
+
+            l1_atom = l1[start_idx:end_idx] # n_atom x 3 x n_out
         
+            hessian = torch.sum(
+               torch.stack([torch.einsum('ik,jl->ijkl', l1_atom[:, :, i], l1_atom[:, :, i+1]) 
+                for i in range(0, self.n_out, 2)]),
+                dim = 0
+                ) # n_atom x n_atom x 3 x 3
+            hessian = hessian.permute(0, 2, 1, 3).reshape(n_atom * 3, n_atom * 3) # (3 * n_atom) x (3 * n_atom)
+            # hessian = hessian + self.offset_matrix
+            hessians.append(hessian)
+
+        hessians = torch.stack(hessians, dim = 0).view(-1, 27) 
+
         inputs[self.hessian_key] = hessians
         return inputs
     
+    def plot_kronecker_products(self, inputs):
+        import matplotlib.pyplot as plt
+
+        l0 = inputs["scalar_representation"] # 90 x 30
+        l1 = inputs["vector_representation"] # 90 x 3 x 30
+
+        l0, l1 = self.outnet((l0, l1)) # 90 x n_out, 90 x 3 x n_out
+
+        n_atoms = inputs[properties.n_atoms]
+        hessians: List[torch.Tensor] = []
+
+        indices = torch.cumsum(n_atoms, dim=0) - n_atoms
+        for start_idx, n_atom in zip(indices, n_atoms):
+            end_idx = start_idx + n_atom
+
+            l1_atom = l1[start_idx:end_idx] # n_atom x 3 x n_out
+
+            kronecker_products = [torch.einsum('ik,jl->ijkl', l1_atom[:, :, i], l1_atom[:, :, i+1]).reshape(n_atom, 3, n_atom, 3).reshape(n_atom * 3, n_atom * 3)
+                 for i in range(0, self.n_out, 2)]
+            
+            fig, axs = plt.subplots(3, 5, figsize=(10, 10))
+            for i, ax in enumerate(axs.flat):
+                ax.imshow(kronecker_products[i].detach().cpu().numpy())
+
+            plt.show()
+
+
+
 class Hessian7(nn.Module):
     def __init__(
         self,
@@ -822,27 +814,53 @@ class Hessian7(nn.Module):
     
         self.outnet = spk.nn.build_gated_equivariant_mlp(
             n_in=n_in,
-            n_out=3,
+            n_out=30,
             n_hidden=n_hidden,
             n_layers=n_layers,
             activation=activation,
             sactivation=activation,
         )
         
-        self.fnn = nn.Sequential(
-            nn.Linear(6 + 8 * n_in, 10),
+
+        self.inner_matrix1 = torch.nn.Parameter(torch.randn(1, 3, 30))
+        self.inner_matrix2 = torch.nn.Parameter(torch.randn(1, 30, 3))
+
+        self.one_hot_encoding_atomic_numbers = {
+            1: torch.tensor([1, 0, 0], device=self.inner_matrix1.device),
+            6: torch.tensor([0, 1, 0], device=self.inner_matrix1.device),
+            8: torch.tensor([0, 0, 1], device=self.inner_matrix1.device),
+        }
+
+        self.positions_transform = nn.Sequential(
+            nn.Linear(6, 30),
             nn.SiLU(),
-            nn.Linear(10, 3 * 3)
+            nn.Linear(30, 30)
+        )
+
+        
+        self.fnn1 = nn.Sequential(
+            nn.Linear(4 * n_in + 30, 30),
+            nn.SiLU(),
+            nn.Linear(30, 10)
+        )
+
+        self.fnn2 = nn.Sequential(
+            nn.Linear(2 * 10, 30),
+            nn.SiLU(),
+            nn.Linear(30, 9)
         )
         
         
     def forward(self, inputs):
         # Features F = 30
+        atomic_numbers = inputs[properties.Z]
         positions = inputs[properties.R] # 90 x 3
         l0 = inputs["scalar_representation"] # 90 x F
         l1 = inputs["vector_representation"] # 90 x 3 x F
 
-        
+        l0, l1 = self.outnet((l0, l1)) # 90 x 30, 90 x 3 x 30
+
+
         n_atoms = inputs[properties.n_atoms]
         hessians: List[torch.Tensor] = []
         
@@ -861,17 +879,35 @@ class Hessian7(nn.Module):
             
             r_i = positions[start_idx:end_idx] # n_atom x 3
             r_i = r_i[pairs]
+
+            atomic_numbers_i = torch.stack([
+                self.one_hot_encoding_atomic_numbers[atom.item()] for atom in atomic_numbers[start_idx:end_idx]]
+                ) # n_atom x 3
+            atomic_numbers_i = atomic_numbers_i[pairs] # (n_atom * n_atom) x 2 x 3
             
             s_atom1 = s_i[:, 0] # (n_atom * n_atom) x F
             s_atom2 = s_i[:, 1] # (n_atom * n_atom) x F
-            v_atom1 = v_i[:, 0].reshape(n_atom * n_atom, 3 * self.n_in) # (n_atom * n_atom) x 3 * F
-            v_atom2 = v_i[:, 1].reshape(n_atom * n_atom, 3 * self.n_in) # (n_atom * n_atom) x 3 * F
+            v_atom1 = v_i[:, 0].reshape(n_atom * n_atom, -1) # (n_atom * n_atom) x 3 * F
+            v_atom2 = v_i[:, 1].reshape(n_atom * n_atom, -1) # (n_atom * n_atom) x 3 * F
             r_atom1 = r_i[:, 0].reshape(n_atom * n_atom, 3) # (n_atom * n_atom) x 3
             r_atom2 = r_i[:, 1].reshape(n_atom * n_atom, 3) # (n_atom * n_atom) x 3
+            z_atom1 = atomic_numbers_i[:, 0] # (n_atom * n_atom) x 3
+            z_atom2 = atomic_numbers_i[:, 1] # (n_atom * n_atom) x 3
             
-            mini_hessian = torch.cat((s_atom1, s_atom2, v_atom1, v_atom2, r_atom1, r_atom2), dim=1) # (n_atom * n_atom) x 8 * F
-            mini_hessian = self.fnn(mini_hessian).reshape(n_atom * n_atom, 3, 3) # (n_atom * n_atom) x 3 x 3
-            
+            position_1 = self.positions_transform(torch.cat((r_atom1, z_atom1), dim=1)) # (n_atom * n_atom) x 30
+            position_2 = self.positions_transform(torch.cat((r_atom2, z_atom2), dim=1)) # (n_atom * n_atom) x 30
+
+            features_1 = self.fnn1(torch.cat((s_atom1, v_atom1, position_1), dim=1)) # (n_atom * n_atom) x 10
+            features_2 = self.fnn1(torch.cat((s_atom2, v_atom2, position_2), dim=1)) # (n_atom * n_atom) x 10
+
+            mini_hessian = self.fnn2(torch.cat((features_1, features_2), dim=1)).reshape(n_atom * n_atom, 3, 3) # (n_atom * n_atom) x 3 x 3
+
+            # mini_hessian = torch.cat((s_atom1, s_atom2, v_atom1, v_atom2, r_atom1, r_atom2), dim=1) # (n_atom * n_atom) x 8 * F
+            # mini_hessian = self.fnn(mini_hessian).reshape(n_atom * n_atom, 3, 3) # (n_atom * n_atom) x 3 x 3
+            # mini_hessian1 = v_atom1 @ s_atom1.unsqueeze(-1) @ r_atom1.unsqueeze(-1).transpose(-2, -1) # (n_atom * n_atom) x 3 x 3
+            # mini_hessian2 = v_atom2 @ s_atom2.unsqueeze(-1) @ r_atom2.unsqueeze(-1).transpose(-2, -1) # (n_atom * n_atom) x 3 x 3
+            # mini_hessian = mini_hessian1 @ self.inner_matrix1 @ self.inner_matrix2 @ mini_hessian2.transpose(-2, -1) # (n_atom * n_atom) x 3 x 3
+
             hessian = torch.zeros((n_atom * 3, n_atom * 3), device=mini_hessian.device)
             for i in range(n_atom * n_atom):
                 x = (i // n_atom) * 3
