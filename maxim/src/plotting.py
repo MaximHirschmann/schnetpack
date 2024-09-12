@@ -13,12 +13,38 @@ import numpy as np
 
     
 def plot_hessian(hessian):
-    # assumes the hessian is of shape 27 x 27
+    # Assumes the hessian is of shape 27 x 27
     if type(hessian) is not np.ndarray:
         hessian = hessian.cpu().detach().numpy()
+
+    fig, ax = plt.subplots()
     
-    plt.imshow(hessian, cmap="viridis")
-    plt.colorbar()
+    # Plot the hessian
+    cax = ax.imshow(hessian, cmap="viridis")
+    plt.colorbar(cax)
+
+    # Adding fine grid lines every 3 cells
+    ax.set_xticks(np.arange(-0.5, 27, 3), minor=True)
+    ax.set_yticks(np.arange(-0.5, 27, 3), minor=True)
+    ax.grid(which='minor', color='w', linestyle='-', linewidth=0.5)
+
+    # Sublabels (x, y, z rotating)
+    sublabels = ['x', 'y', 'z']
+    tick_labels = [sublabels[i % 3] for i in range(27)]
+    
+    main_labels = [r"$C_1$", r"$C_2$", r"$O_{C1}$", r"$H_{C1}$", r"$H_{C1}$", r"$H_{C2}$", r"$H_{C2}$", r"$H_{C2}$", r"$H_{O}$"]
+    
+    # Set sublabels for x-axis and y-axis
+    ax.set_xticks(np.arange(27))
+    ax.set_xticklabels(tick_labels)
+    ax.set_yticks(np.arange(27))
+    ax.set_yticklabels(tick_labels)
+
+    # Set main labels every 3rd column and row
+    for i, label in enumerate(main_labels):
+        ax.text(i * 3 + 1, -1.5, label, ha='center', va='center', fontsize=12, color='black', fontweight='bold', transform=ax.transData)
+        ax.text(27 + .5, i * 3 + 1, label, ha='center', va='center', fontsize=12, color='black', fontweight='bold', transform=ax.transData)
+    
     plt.show()
     
 
@@ -255,21 +281,15 @@ def plot_atoms(list_of_atoms):
     fig, axs = plt.subplots(1, 1, figsize=(20, 20), subplot_kw={'projection': '3d'})
     
     markers = ['o', '^', 's', 'P', '*', 'X', 'D']
+    colors_by_number = {
+        1: "b",
+        6: "k",
+        8: "r"
+    }
     
     for i, atoms in enumerate(list_of_atoms):
+        colors = [colors_by_number[num] for num in atoms.numbers]
         positions = atoms.get_positions()
-        colors = np.array([
-            "k",
-            "k",
-            "r",
-            "b",
-            "b",
-            "b",
-            "b",
-            "b",
-            "b"
-        ])
-        
         sc = axs.scatter(positions[:, 0], positions[:, 1], positions[:, 2], c=colors, s=100, label='Atom Positions', marker = markers[i])
         
     axs.set_xlabel('X')
@@ -346,7 +366,6 @@ def plot_average_over_time(
     plt.show()
     
     
-            
 def plot_all_histories(histories: List[List[str]], labels, title = "All Energy Histories"):
     cols = 6
     fig, axs = plt.subplots(int(np.ceil(len(histories) / cols)), cols, figsize=(15, 15))
@@ -419,6 +438,13 @@ def plot_true_values(results, labels, base_atom, base_internal_energy):
     # axs.legend()
     # plt.show()
     
+if __name__ == "__main__":
+    hessian = np.random.rand(27, 27)
+    hessian = (hessian + hessian.T) / 2
+    hessian += np.eye(27) 
+    hessian -= 1
     
+    plot_hessian(hessian)
+     
     
     

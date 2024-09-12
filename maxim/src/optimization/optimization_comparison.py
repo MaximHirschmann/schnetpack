@@ -37,19 +37,27 @@ def compare():
     
     hessian_model = load_model("hessian1", device=device)
     hessian_model_kronecker = load_model("hessian_kronecker", device=device)
+    inv_hessian_model = load_model("inv_hessian2", device=device)
+    inv_hessian_model_kronecker = load_model("inv_hessian_kronecker", device=device)
+    original_hessian_model_kronecker = load_model("original_hessian_kronecker", device=device)
 
     strategies = [
-        ForcesStrategy(),
-        HessianStrategy(hessian_model, name = "hessian"),
-        HessianStrategy(hessian_model_kronecker, name = "hessian_kronecker"),
-        NewtonStepStrategy(),
-        InvHessianStrategy(),
-        AvgHessianStrategy(),
-        AutoDiffHessianStrategy(data.test_dataset[0]),
-        DiagonalStrategy()
+        # ForcesStrategy(),
+        # HessianStrategy(hessian_model, name = "hessian"),
+        # HessianStrategy(hessian_model_kronecker, name = "hessian_kronecker", make_pd=True, model2 = hessian_model),
+        # NewtonStepStrategy(),
+        # InvHessianStrategy(model = inv_hessian_model, name = "inv_hessian"),
+        # InvHessianStrategy(model = inv_hessian_model_kronecker, name = "inv_hessian_kronecker"),
+        # AvgHessianStrategy(),
+        # AutoDiffHessianStrategy(data.test_dataset[0]),
+        # DiagonalStrategy(),
+        OriginalHessianStrategy(original_hessian_model_kronecker),
+        OriginalHessianStrategy(original_hessian_model_kronecker, name = "eig mod", modify_eig=True),
     ]
-
-    N = 15
+    # for tau in [0.1]: #[0.02, 0.05, 0.1, 0.2, 0.5, 1]:
+    #     strategies.append(OriginalHessianStrategy(original_hessian_model_kronecker, name = f"Og hessian {tau}", tau = tau))
+    
+    N = 10
     for idx, i in enumerate(random.sample(range(len(data.test_dataset)), N)):
         histories.append([])
         results.append([])
@@ -64,7 +72,7 @@ def compare():
         print(f"Initial energy: {energy_0.item()}")
         for strategy in strategies:
             result, t = gradient_descent(atoms.copy(), strategy)
-            print(f"Result {strategy.name}: {result.score_history[-1]} in {len(result.score_history)} steps in {t} seconds")
+            print(f"Result {strategy.name}: {result.score_history[-1]:.4f} in {len(result.score_history):.4f} steps in {t} seconds")
             
             histories[-1].append(result.score_history)
             results[-1].append(result)

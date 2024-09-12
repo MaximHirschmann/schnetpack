@@ -21,10 +21,14 @@ def get_training_directory():
 
 @logger
 def train(data):
-    epochs = 50
+    epochs = 30
+    continue_last_training = False
+    properties_to_train_for = [
+        "original_hessian"
+    ]
+    
     cutoff = 5.
     n_atom_basis = 30
-
     pairwise_distance = spk.atomistic.PairwiseDistances() # calculates pairwise distances between atoms
     radial_basis = spk.nn.GaussianRBF(n_rbf=20, cutoff=cutoff)
     paiNN = spk.representation.PaiNN(
@@ -34,130 +38,44 @@ def train(data):
         cutoff_fn=spk.nn.CosineCutoff(cutoff)
     )
 
-    pred_energy = spk.atomistic.Atomwise(n_in=n_atom_basis, output_key="energy")
-    pred_forces = spk.atomistic.Forces(energy_key="energy", force_key="forces")
-    pred_polarizability = spk.atomistic.Polarizability(n_in = n_atom_basis, polarizability_key = "polarizability")
-    pred_newton_step = spk.atomistic.NewtonStep(n_in = n_atom_basis, newton_step_key = "newton_step")
-    pred_best_direction = spk.atomistic.BestDirection(n_in = n_atom_basis, best_direction_key = "best_direction")
-    pred_forces_copy = spk.atomistic.Forces2(n_in = n_atom_basis, forces_copy_key = "forces_copy")
-    # pred_hessian = spk.atomistic.Hessian2(n_in = n_atom_basis, hessian_key = "hessian")
-    pred_hessian = spk.atomistic.Hessian6(n_in = n_atom_basis, hessian_key = "hessian")
-    pred_inv_hessian = spk.atomistic.Hessian2(n_in = n_atom_basis, hessian_key = "inv_hessian")
-    # pred_diagonal = spk.atomistic.HessianDiagonal(n_in = n_atom_basis, diagonal_key = "original_diagonal")
-    pred_diagonal = spk.atomistic.HessianDiagonal2(n_in = n_atom_basis, diagonal_key = "original_diagonal")
+    module_for_property = {
+        "energy": spk.atomistic.Atomwise(n_in=n_atom_basis, output_key="energy"),
+        "forces": spk.atomistic.Forces(energy_key="energy", force_key="forces"),
+        "polarizability": spk.atomistic.Polarizability(n_in = n_atom_basis, polarizability_key = "polarizability"),
+        "newton_step": spk.atomistic.NewtonStep(n_in = n_atom_basis, newton_step_key = "newton_step"),
+        "best_direction": spk.atomistic.BestDirection(n_in = n_atom_basis, best_direction_key = "best_direction"),
+        "forces_copy": spk.atomistic.Forces2(n_in = n_atom_basis, forces_copy_key = "forces_copy"),
+        "hessian": spk.atomistic.Hessian6(n_in = n_atom_basis, hessian_key = "hessian"),
+        "inv_hessian": spk.atomistic.Hessian6(n_in = n_atom_basis, hessian_key = "inv_hessian"),
+        "original_diagonal": spk.atomistic.HessianDiagonal2(n_in = n_atom_basis, diagonal_key = "original_diagonal"),
+        "original_hessian": spk.atomistic.Hessian6(n_in = n_atom_basis, hessian_key = "original_hessian"),
+    }
     
-    nnpot = spk.model.NeuralNetworkPotential(
-        representation=paiNN,
-        input_modules=[pairwise_distance],
-        output_modules=[
-            # pred_energy,
-            # pred_forces, 
-            pred_hessian,
-            # pred_inv_hessian,
-            # pred_newton_step,
-            # pred_best_direction,
-            # pred_forces_copy,
-            # pred_diagonal
-            ],
-        postprocessors=[
-            trn.CastTo64(),
-            # trn.AddOffsets("energy", add_mean=True, add_atomrefs=False)
-        ]
-    )
+    if continue_last_training:
+        model = load_model()
+    else:
+        model = spk.model.NeuralNetworkPotential(
+            representation=paiNN,
+            input_modules=[pairwise_distance],
+            output_modules=[module_for_property[property] for property in properties_to_train_for],
+            postprocessors=[
+                trn.CastTo64(),
+            ]
+        )
 
-    output_energy = spk.task.ModelOutput(
-        name="energy",
-        loss_fn=torch.nn.MSELoss(),
-        loss_weight=0.2,
-        metrics={
-            "MAE": torchmetrics.MeanAbsoluteError()
-        }
-    )
-
-    output_forces = spk.task.ModelOutput(
-        name="forces",
-        loss_fn=torch.nn.MSELoss(),
-        loss_weight=0.2,
-        metrics={
-            "MAE": torchmetrics.MeanAbsoluteError()
-        }
-    )
-
-    output_polarizability = spk.task.ModelOutput(
-        name="polarizability",
-        loss_fn=torch.nn.MSELoss(),
-        loss_weight=0,
-        metrics={
-            "MAE": torchmetrics.MeanAbsoluteError()
-        }
-    )
-    
-    output_hessian = spk.task.ModelOutput(
-        name="hessian",
-        loss_fn=torch.nn.MSELoss(),
-        loss_weight=1,
-        metrics={
-            "MAE": torchmetrics.MeanAbsoluteError()
-        }
-    )
-    
-    output_inv_hessian = spk.task.ModelOutput(
-        name="inv_hessian",
-        loss_fn=torch.nn.MSELoss(),
-        loss_weight=1,
-        metrics={
-            "MAE": torchmetrics.MeanAbsoluteError()
-        }
-    )
-
-    output_newton_step = spk.task.ModelOutput(
-        name="newton_step",
-        loss_fn=torch.nn.MSELoss(),
-        loss_weight=0.2,
-        metrics={
-            "MAE": torchmetrics.MeanAbsoluteError()
-        }
-    )
-
-    output_best_direction = spk.task.ModelOutput(
-        name="best_direction",
-        loss_fn=torch.nn.MSELoss(),
-        loss_weight=0.2,
-        metrics = {
-            "MAE": torchmetrics.MeanAbsoluteError()
-        }
-    )
-    
-    output_forces_copy = spk.task.ModelOutput(
-        name="forces_copy",
-        loss_fn=torch.nn.MSELoss(),
-        loss_weight=0.2,
-        metrics = {
-            "MAE": torchmetrics.MeanAbsoluteError()
-        }
-    )
-
-    output_diagonal = spk.task.ModelOutput(
-        name="original_diagonal",
-        loss_fn=torch.nn.MSELoss(),
-        loss_weight=1,
-        metrics = {
-            "MAE": torchmetrics.MeanAbsoluteError()
-        }
-    )
+    def get_model_output(name):
+        return spk.task.ModelOutput(
+            name=name,
+            loss_fn=torch.nn.MSELoss(),
+            loss_weight=1,
+            metrics={
+                "MAE": torchmetrics.MeanAbsoluteError()
+            }
+        )
 
     task = spk.task.AtomisticTask(
-        model=nnpot,
-        outputs=[
-            # output_energy, 
-            # output_forces, 
-            output_hessian, 
-            # output_inv_hessian, 
-            # output_newton_step,
-            # output_best_direction,
-            # output_forces_copy,
-            # output_diagonal
-            ],
+        model=model,
+        outputs=[get_model_output(property) for property in properties_to_train_for],
         optimizer_cls=torch.optim.AdamW,
         optimizer_args={"lr": 2e-3}
     )
@@ -345,7 +263,7 @@ def main():
     
     # calculate_average_newton_step(data)
     
-    # train(data)
+    train(data)
     
     # model_name = "newton_step_model"
     # model_path = os.getcwd() + "\\maxim\\models\\" + model_name
@@ -353,17 +271,17 @@ def main():
     #     model_path
     # )
     
-    model = load_model("hessian_kronecker")
+    model = load_model()
 
     # matrix = model.output_modules[0].offset_matrix.detach().cpu().numpy()
 
-    # loss = evaluate_model(model, data, 
-    #         properties = ["hessian"],
-    #         showDiff=True,
-    #     )
+    loss = evaluate_model(model, data, 
+            properties = ["original_hessian"],
+            showDiff=True,
+        )
     
     
-    plot_kronecker_products(model, data)
+    # plot_kronecker_products(model, data)
 
     # compare_directions(model, data, compare = ["forces", "newton_step"])
     

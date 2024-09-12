@@ -11,6 +11,7 @@ from schnetpack.interfaces import SpkCalculator
 
 sys.path.insert(1, schnetpack_dir + "\\maxim\\src")
 from Utils import load_model
+import plotting
 
 from typing import Dict, Tuple
 import torch
@@ -51,16 +52,23 @@ class ForcesStrategy(StrategyBase):
     
     
 class HessianStrategy(StrategyBase):
-    def __init__(self, model, name = "hessian", line_search: bool = True) -> None:
+    def __init__(self, model, name = "hessian", line_search: bool = True, make_pd = False, model2 = None) -> None:
         super().__init__(name, line_search)
         self.model = model
+        self.make_pd = make_pd
+        self.model2 = model2
     
     def get_direction(self, inputs: Dict[str, torch.Tensor]) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         energy, forces = super().prepare_energy_and_forces(inputs)
         
         inputs_copy = inputs.copy()
-        inputs_copy = self.model(inputs_copy)
-        hessian: torch.Tensor = inputs_copy["hessian"]
+        model_output = self.model(inputs_copy)
+        hessian: torch.Tensor = model_output["hessian"]
+        if self.make_pd:
+            smallest_eigval = torch.min(torch.linalg.eigvals(hessian).real)
+            if smallest_eigval < 0:
+                hessian = hessian + torch.eye(hessian.shape[0], device=device) * (-smallest_eigval + 1e-7)
+            
         hessian = hessian / torch.linalg.norm(hessian)
         
         newton_step: torch.Tensor = torch.linalg.solve(hessian, forces.flatten()).reshape(forces.shape)
@@ -70,6 +78,35 @@ class HessianStrategy(StrategyBase):
         
         return energy, forces, direction
     
+    
+class OriginalHessianStrategy(StrategyBase):
+    def __init__(self, model, name = "original_hessian", line_search: bool = True, tau = 0.1, modify_eig = False) -> None:
+        super().__init__(name, line_search)
+        self.model = model
+        self.tau = tau
+        self.modify_eig = modify_eig
+    
+    def get_direction(self, inputs: Dict[str, torch.Tensor]) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        energy, forces = super().prepare_energy_and_forces(inputs)
+        
+        inputs_copy = inputs.copy()
+        model_output = self.model(inputs_copy)
+        hessian: torch.Tensor = model_output["original_hessian"]
+        if self.modify_eig:
+            eigenvalues, eigenvectors = torch.linalg.eig(hessian)
+            eigenvalues = eigenvalues.real
+            eigenvectors = eigenvectors.real
+            inv_eigenvalues = torch.where(eigenvalues > 1e-5, 1/eigenvalues, torch.tensor(1e-5, device = eigenvalues.device))
+            inv_hessian = eigenvectors @ torch.diag(inv_eigenvalues) @ eigenvectors.T
+            newton_step: torch.Tensor = (inv_hessian @ forces.flatten()).reshape(forces.shape)
+        else:
+            hessian += torch.eye(hessian.shape[0], device=device) * self.tau
+            newton_step: torch.Tensor = torch.linalg.solve(hessian, forces.flatten()).reshape(forces.shape)
+            
+        direction: torch.Tensor = newton_step / torch.linalg.norm(newton_step)
+        direction = direction.to(dtype=torch.float32)
+        
+        return energy, forces, direction
     
 class NewtonStepStrategy(StrategyBase):
     def __init__(self, line_search: bool = True) -> None:
@@ -89,14 +126,15 @@ class NewtonStepStrategy(StrategyBase):
         return energy, forces, direction
     
 class InvHessianStrategy(StrategyBase):
-    def __init__(self, line_search: bool = True) -> None:
-        super().__init__("Inv Hessian", line_search)
+    def __init__(self, model, name = "inv_hessian", line_search: bool = True) -> None:
+        super().__init__(name, line_search)
+        self.model = model
     
     def get_direction(self, inputs: Dict[str, torch.Tensor]) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         energy, forces = super().prepare_energy_and_forces(inputs)
         
         inputs_copy = inputs.copy()
-        inputs_copy = inv_hessian_model(inputs_copy)
+        inputs_copy = self.model(inputs_copy)
         inv_hessian: torch.Tensor = inputs_copy["inv_hessian"]
         inv_hessian = inv_hessian / torch.linalg.norm(inv_hessian)
         
@@ -204,9 +242,9 @@ energy_model = load_model("energy_model", device=device)
 # energy_model = load_model("jonas_forces_500_scfpy_loose", device=device)
 # energy_model = load_model("jonas_hessian_50_loose_2", device=device)
 # energy_model = load_model("jonas_hessian_500_loose", device=device)
-hessian_model = load_model("hessian1", device=device)
-hessian_model_kronecker = load_model("hessian_kronecker", device=device)
-newton_step_model = load_model("newton_step", device=device)
-inv_hessian_model = load_model("inv_hessian2", device=device)
-diagonal_model = load_model("diagonal2", device=device)
-avg_hessian = torch.tensor(np.load(os.getcwd() + "\\maxim\\data\\avg_hessian.npy"), dtype=torch.float64, device=device)
+# hessian_model = load_model("hessian1", device=device)
+# hessian_model_kronecker = load_model("hessian_kronecker", device=device)
+# newton_step_model = load_model("newton_step", device=device)
+# inv_hessian_model = load_model("inv_hessian2", device=device)
+# diagonal_model = load_model("diagonal2", device=device)
+# avg_hessian = torch.tensor(np.load(os.getcwd() + "\\maxim\\data\\avg_hessian.npy"), dtype=torch.float64, device=device)

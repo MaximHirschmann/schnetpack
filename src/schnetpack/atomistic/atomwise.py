@@ -725,7 +725,7 @@ class Hessian6(nn.Module):
         self.hessian_key = hessian_key
         self.model_outputs = [hessian_key]
     
-        self.n_out = 30 # has to be even
+        self.n_out = 20 # has to be even
         self.outnet = spk.nn.build_gated_equivariant_mlp(
             n_in=n_in,
             n_out=self.n_out,
@@ -734,8 +734,6 @@ class Hessian6(nn.Module):
             activation=activation,
             sactivation=activation,
         )
-
-        self.offset_matrix = torch.nn.Parameter(torch.randn(27, 27))
         
         
     def forward(self, inputs):
@@ -754,12 +752,16 @@ class Hessian6(nn.Module):
 
             l1_atom = l1[start_idx:end_idx] # n_atom x 3 x n_out
         
-            hessian = torch.sum(
-               torch.stack([torch.einsum('ik,jl->ijkl', l1_atom[:, :, i], l1_atom[:, :, i+1]) 
-                for i in range(0, self.n_out, 2)]),
-                dim = 0
-                ) # n_atom x n_atom x 3 x 3
-            hessian = hessian.permute(0, 2, 1, 3).reshape(n_atom * 3, n_atom * 3) # (3 * n_atom) x (3 * n_atom)
+            kronecker_products = [
+                torch.einsum('ik,jl->ijkl', l1_atom[:, :, i], l1_atom[:, :, i+1]).permute(0, 2, 1, 3).reshape(n_atom * 3, n_atom * 3)
+                for i in range(0, self.n_out, 2)
+            ] # (n_out * 3, n_out * 3) x n_out//2
+            
+            hessian = torch.sum(torch.stack(kronecker_products), dim=0) # n_out * 3 x n_out * 3
+            
+            # make symmetric
+            hessian = (hessian + hessian.T) / 2
+            
             # hessian = hessian + self.offset_matrix
             hessians.append(hessian)
 
@@ -785,13 +787,19 @@ class Hessian6(nn.Module):
 
             l1_atom = l1[start_idx:end_idx] # n_atom x 3 x n_out
 
-            kronecker_products = [torch.einsum('ik,jl->ijkl', l1_atom[:, :, i], l1_atom[:, :, i+1]).reshape(n_atom, 3, n_atom, 3).reshape(n_atom * 3, n_atom * 3)
+            kronecker_products = [
+                torch.einsum('ik,jl->ijkl', l1_atom[:, :, i], l1_atom[:, :, i+1]).permute(0, 2, 1, 3).reshape(n_atom * 3, n_atom * 3)
                  for i in range(0, self.n_out, 2)]
             
             fig, axs = plt.subplots(3, 5, figsize=(10, 10))
             for i, ax in enumerate(axs.flat):
-                ax.imshow(kronecker_products[i].detach().cpu().numpy())
+                im = ax.imshow(kronecker_products[i].detach().cpu().numpy())
 
+                # add colorbar
+                cbar = ax.figure.colorbar(im, ax=ax)
+                
+                
+                
             plt.show()
 
 
