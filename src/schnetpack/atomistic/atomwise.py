@@ -772,7 +772,42 @@ class Hessian6(nn.Module):
     
     def plot_kronecker_products(self, inputs):
         import matplotlib.pyplot as plt
+        import numpy as np
+        
+        def plot_hessian(hessian, ax):
+            # Assumes the hessian is of shape 27 x 27
+            if type(hessian) is not np.ndarray:
+                hessian = hessian.cpu().detach().numpy()
 
+            # Plot the hessian
+            cax = ax.imshow(hessian, cmap="viridis")
+            plt.colorbar(cax)
+
+            # Adding fine grid lines every 3 cells
+            ax.set_xticks(np.arange(-0.5, 27, 3), minor=True)
+            ax.set_yticks(np.arange(-0.5, 27, 3), minor=True)
+            ax.grid(which='minor', color='w', linestyle='-', linewidth=0.5)
+
+            # Sublabels (x, y, z rotating)
+            sublabels = ['x', 'y', 'z']
+            tick_labels = [sublabels[i % 3] for i in range(27)]
+            
+            # main_labels = [r"$C_1$", r"$C_2$", r"$O_{C1}$", r"$H_{C1}$", r"$H_{C1}$", r"$H_{C2}$", r"$H_{C2}$", r"$H_{C2}$", r"$H_{O}$"]
+            main_labels = [r"$C$", r"$C$", r"$O$", r"$H$", r"$H$", r"$H$", r"$H$", r"$H$", r"$H$"]
+            
+            # Set sublabels for x-axis and y-axis
+            # ax.set_xticks(np.arange(27))
+            # ax.set_xticklabels(tick_labels)
+            # ax.set_yticks(np.arange(27))
+            # ax.set_yticklabels(tick_labels)
+            ax.set_xticks([])
+            ax.set_yticks([])
+
+            # Set main labels every 3rd column and row
+            for i, label in enumerate(main_labels):
+                ax.text(i * 3 + 1, -1.5, label, ha='center', va='center', fontsize=10, color='black', fontweight='bold', transform=ax.transData)
+                ax.text(-1.5, i * 3 + 1, label, ha='center', va='center', fontsize=10, color='black', fontweight='bold', transform=ax.transData)
+            
         l0 = inputs["scalar_representation"] # 90 x 30
         l1 = inputs["vector_representation"] # 90 x 3 x 30
 
@@ -789,18 +824,24 @@ class Hessian6(nn.Module):
 
             kronecker_products = [
                 torch.einsum('ik,jl->ijkl', l1_atom[:, :, i], l1_atom[:, :, i+1]).permute(0, 2, 1, 3).reshape(n_atom * 3, n_atom * 3)
-                 for i in range(0, self.n_out, 2)]
+                for i in range(0, self.n_out, 2)
+            ]
             
-            fig, axs = plt.subplots(3, 5, figsize=(10, 10))
+            fig, axs = plt.subplots(2, 5, figsize=(15, 15))
             for i, ax in enumerate(axs.flat):
-                im = ax.imshow(kronecker_products[i].detach().cpu().numpy())
-
+                #im = ax.imshow(kronecker_products[i].detach().cpu().numpy())
+                kronecker_product = kronecker_products[i].detach().cpu().numpy()
+                plot_hessian(kronecker_product, ax)
+                
                 # add colorbar
-                cbar = ax.figure.colorbar(im, ax=ax)
-                
-                
-                
+                # cbar = ax.figure.colorbar(im, ax=ax)
+            
+            plt.suptitle("Individual Kronecker Products (The sum of these will be the final hessian)")
+            
+            # plt.tight_layout()
             plt.show()
+            
+            
 
 
 

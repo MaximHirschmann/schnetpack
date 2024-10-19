@@ -42,14 +42,14 @@ def compare():
     original_hessian_model_kronecker = load_model("original_hessian_kronecker", device=device)
 
     strategies = [
-        # ForcesStrategy(),
-        # HessianStrategy(hessian_model, name = "hessian"),
-        # HessianStrategy(hessian_model_kronecker, name = "hessian_kronecker", make_pd=True, model2 = hessian_model),
+        ForcesStrategy(),
+        HessianStrategy(hessian_model, name = "hessian"),
+        #HessianStrategy(hessian_model_kronecker, name = "hessian_kronecker", make_pd=True, model2 = hessian_model),
         # NewtonStepStrategy(),
-        # InvHessianStrategy(model = inv_hessian_model, name = "inv_hessian"),
-        # InvHessianStrategy(model = inv_hessian_model_kronecker, name = "inv_hessian_kronecker"),
+        InvHessianStrategy(model = inv_hessian_model, name = "inv_hessian"),
+        #InvHessianStrategy(model = inv_hessian_model_kronecker, name = "inv_hessian_kronecker"),
         # AvgHessianStrategy(),
-        # AutoDiffHessianStrategy(data.test_dataset[0]),
+        AutoDiffHessianStrategy(data.test_dataset[0]),
         # DiagonalStrategy(),
         OriginalHessianStrategy(original_hessian_model_kronecker),
         OriginalHessianStrategy(original_hessian_model_kronecker, name = "eig mod", modify_eig=True),

@@ -263,7 +263,7 @@ def main():
     
     # calculate_average_newton_step(data)
     
-    train(data)
+    # train(data)
     
     # model_name = "newton_step_model"
     # model_path = os.getcwd() + "\\maxim\\models\\" + model_name
@@ -275,13 +275,12 @@ def main():
 
     # matrix = model.output_modules[0].offset_matrix.detach().cpu().numpy()
 
-    loss = evaluate_model(model, data, 
-            properties = ["original_hessian"],
-            showDiff=True,
-        )
+    # loss = evaluate_model(model, data, 
+    #         properties = ["original_hessian"],
+    #         showDiff=True,
+    #     )
     
-    
-    # plot_kronecker_products(model, data)
+    plot_kronecker_products(model, data)
 
     # compare_directions(model, data, compare = ["forces", "newton_step"])
     

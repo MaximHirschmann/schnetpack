@@ -108,6 +108,7 @@ class OriginalHessianStrategy(StrategyBase):
         
         return energy, forces, direction
     
+    
 class NewtonStepStrategy(StrategyBase):
     def __init__(self, line_search: bool = True) -> None:
         super().__init__("Newton Step", line_search)
