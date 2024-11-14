@@ -9,7 +9,7 @@ import schnetpack.nn as snn
 import schnetpack.properties as properties
 
 __all__ = ["Atomwise", "DipoleMoment", "Polarizability", 
-           "Hessian", "Hessian2", "Hessian3", "Hessian4", "Hessian5", "Hessian6", "Hessian7",
+           "Hessian", "Hessian2", "Hessian3", "Hessian4", "Hessian5", "Hessian6", "Hessian7", "Hessian8",
            "NewtonStep", "BestDirection", "Forces2", "HessianDiagonal", "HessianDiagonal2"]
 
 
@@ -836,7 +836,7 @@ class Hessian6(nn.Module):
                 # add colorbar
                 # cbar = ax.figure.colorbar(im, ax=ax)
             
-            plt.suptitle("Individual Kronecker Products (The sum of these will be the final hessian)")
+            plt.suptitle(f"Individual Kronecker Products with #features = {self.n_out}")
             
             # plt.tight_layout()
             plt.show()
@@ -970,6 +970,70 @@ class Hessian7(nn.Module):
         inputs[self.hessian_key] = hessians
         return inputs
     
+class Hessian8(nn.Module):
+    def __init__(
+        self,
+        n_in: int,
+        n_hidden: Optional[Union[int, Sequence[int]]] = None,
+        n_layers: int = 2,
+        activation: Callable = F.silu,
+        hessian_key: str = properties.hessian,
+    ):
+        super(Hessian8, self).__init__()
+        self.U_features = 6
+        self.outnet_l1 = spk.nn.build_gated_equivariant_mlp(
+            n_in=n_in,
+            n_out=self.U_features,
+            n_hidden=n_hidden,
+            n_layers=n_layers,
+            activation=activation,
+            sactivation=activation,
+        )
+        
+        self.outnet_l0 = spk.nn.build_gated_equivariant_mlp(
+            n_in=n_in,
+            n_out=3,
+            n_hidden=n_hidden,
+            n_layers=n_layers,
+            activation=activation,
+            sactivation=activation,
+        ) 
+        
+        self.hessian_key = hessian_key
+        self.model_outputs = [hessian_key]
+        
+    def forward(self, inputs):
+        atomic_numbers = inputs[properties.Z]
+        positions = inputs[properties.R] # 90 x 3
+        l0 = inputs["scalar_representation"] # 90 x F
+        l1 = inputs["vector_representation"] # 90 x 3 x F
+
+        l0_outnet, _ = self.outnet_l0((l0, l1)) # 90 x 1, 90 x 3 x 1
+        _, l1_outnet = self.outnet_l1((l0, l1)) # 90 x F, 90 x 3 x F
+        
+        n_atoms = inputs[properties.n_atoms]
+        hessians: List[torch.Tensor] = []
+        
+        indices = torch.cumsum(n_atoms, dim=0) - n_atoms
+        for start_idx, n_atom in zip(indices, n_atoms):
+            end_idx = start_idx + n_atom
+            
+            l0_atom = l0_outnet[start_idx:end_idx].reshape(n_atom * 3) # n_atom * 3
+            l1_atom = l1_outnet[start_idx:end_idx].reshape(n_atom * 3, self.U_features) # n_atom x 3 x 6
+            
+            # represent hessian as D + UU^T
+            D = torch.diag_embed(l0_atom.flatten()) # (n_atom * 3) x (n_atom * 3)
+            UUT = l1_atom @ l1_atom.T # (n_atom * 3) x (n_atom * 3)
+            
+            hessian = D + UUT
+            
+            hessians.append(hessian)
+            
+        hessians = torch.stack(hessians, dim = 0).view(-1, 27)
+        
+        inputs[self.hessian_key] = hessians
+        return inputs
+            
     
 class NewtonStep(nn.Module):
     def __init__(

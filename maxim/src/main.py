@@ -21,8 +21,8 @@ def get_training_directory():
 
 @logger
 def train(data):
-    epochs = 30
-    continue_last_training = False
+    epochs = 10
+    continue_last_training = True
     properties_to_train_for = [
         "original_hessian"
     ]
@@ -48,7 +48,7 @@ def train(data):
         "hessian": spk.atomistic.Hessian6(n_in = n_atom_basis, hessian_key = "hessian"),
         "inv_hessian": spk.atomistic.Hessian6(n_in = n_atom_basis, hessian_key = "inv_hessian"),
         "original_diagonal": spk.atomistic.HessianDiagonal2(n_in = n_atom_basis, diagonal_key = "original_diagonal"),
-        "original_hessian": spk.atomistic.Hessian6(n_in = n_atom_basis, hessian_key = "original_hessian"),
+        "original_hessian": spk.atomistic.Hessian8(n_in = n_atom_basis, hessian_key = "original_hessian"),
     }
     
     if continue_last_training:
@@ -105,21 +105,16 @@ def train(data):
 def evaluate_model(model, data, 
         properties,
         showDiff=True,
-        # plotForces=True,
-        # plotNewtonStep=True,
-        # plotHessians=True,
-        # plotInverseHessians=True,
-        # plotBestDirection=True,
-        # plotForcesCopy=True
+        title = ""
         ):
     # set up converter
     converter = spk.interfaces.AtomsConverter(
         neighbor_list=trn.ASENeighborList(cutoff=5.0), dtype=torch.float32, device=device
     )
 
-    
-    for i in range(len(data.test_dataset)):
-        structure = data.test_dataset[i]
+    # random pick
+    for i in range(10):
+        structure = data.test_dataset[np.random.randint(len(data.test_dataset))]
         atoms = Atoms(
             numbers=structure[spk.properties.Z], positions=structure[spk.properties.R]
         )
@@ -127,9 +122,7 @@ def evaluate_model(model, data,
         inputs = converter(atoms)
         results = model(inputs)
         
-        if i < 10:
-            #plot(structure, results, showDiff, plotForces, plotNewtonStep, plotHessians, plotInverseHessians, plotBestDirection, plotForcesCopy)
-            plot2(structure, results, properties, showDiff = showDiff)
+        plot2(structure, results, properties, title = title, showDiff = showDiff)
 
 @logger
 def plot_kronecker_products(model, data):
@@ -271,12 +264,13 @@ def main():
     #     model_path
     # )
     
-    model = load_model()
+    model = load_model("uut_model")
 
     # matrix = model.output_modules[0].offset_matrix.detach().cpu().numpy()
 
     # loss = evaluate_model(model, data, 
     #         properties = ["original_hessian"],
+    #         title="Kronecker Model - Comparison of predicted and real hessian",
     #         showDiff=True,
     #     )
     

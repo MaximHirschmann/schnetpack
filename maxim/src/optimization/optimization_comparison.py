@@ -17,7 +17,7 @@ sys.path.insert(1, schnetpack_dir + "\\maxim\\src")
 from plotting  import plot_average, plot_all_histories, plot_average_over_time, plot_true_values
 from Utils import load_data
 from strategies import *
-from gradient_descent import GradientDescentParameters, gradient_descent
+from gradient_descent import GradientDescentParameters, BacktrackingLineSearchParams, gradient_descent
 
 import torch
 from ase import Atoms
@@ -40,24 +40,28 @@ def compare():
     inv_hessian_model = load_model("inv_hessian2", device=device)
     inv_hessian_model_kronecker = load_model("inv_hessian_kronecker", device=device)
     original_hessian_model_kronecker = load_model("original_hessian_kronecker", device=device)
+    original_hessian_model_uut = load_model("uut_model", device=device)
 
     strategies = [
         ForcesStrategy(),
         HessianStrategy(hessian_model, name = "hessian"),
-        #HessianStrategy(hessian_model_kronecker, name = "hessian_kronecker", make_pd=True, model2 = hessian_model),
-        # NewtonStepStrategy(),
+        # HessianStrategy(hessian_model_kronecker, name = "hessian_kronecker", make_pd=True, model2 = hessian_model),
+        NewtonStepStrategy(),
         InvHessianStrategy(model = inv_hessian_model, name = "inv_hessian"),
-        #InvHessianStrategy(model = inv_hessian_model_kronecker, name = "inv_hessian_kronecker"),
-        # AvgHessianStrategy(),
+        # InvHessianStrategy(model = inv_hessian_model_kronecker, name = "inv_hessian_kronecker"),
+        AvgHessianStrategy(),
         AutoDiffHessianStrategy(data.test_dataset[0]),
-        # DiagonalStrategy(),
+        DiagonalStrategy(),
         OriginalHessianStrategy(original_hessian_model_kronecker),
-        OriginalHessianStrategy(original_hessian_model_kronecker, name = "eig mod", modify_eig=True),
+        OriginalHessianStrategy(original_hessian_model_uut, name = "D+UUT"),
+        # OriginalHessianStrategy(original_hessian_model_kronecker, name = "eig mod", modify_eig=True),
     ]
+    
+    line_search_params = BacktrackingLineSearchParams(active = True)
     # for tau in [0.1]: #[0.02, 0.05, 0.1, 0.2, 0.5, 1]:
     #     strategies.append(OriginalHessianStrategy(original_hessian_model_kronecker, name = f"Og hessian {tau}", tau = tau))
     
-    N = 10
+    N = 50
     for idx, i in enumerate(random.sample(range(len(data.test_dataset)), N)):
         histories.append([])
         results.append([])

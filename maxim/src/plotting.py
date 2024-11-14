@@ -9,6 +9,7 @@ from optimization.best_evaluate import best_evaluate
 
 from typing import List
 import matplotlib.pyplot as plt
+from matplotlib.lines import Line2D
 import numpy as np
 
     
@@ -47,6 +48,42 @@ def plot_hessian(hessian):
     
     plt.show()
     
+def plot_hessian2(hessian, ax=None, colorbar=True):
+    # Assumes the hessian is of shape 27 x 27
+    if type(hessian) is not np.ndarray:
+        hessian = hessian.cpu().detach().numpy()
+
+    if ax is None:
+        fig, ax = plt.subplots()
+
+    # Plot the hessian
+    cax = ax.imshow(hessian, cmap="viridis", vmin = -0.5, vmax = 0.5)
+    
+    # Optionally add a colorbar (assumes plt.colorbar if outside of subplot control)
+    if colorbar:
+        plt.colorbar(cax, ax=ax, fraction=0.046, pad=0.1)
+
+    # Adding fine grid lines every 3 cells
+    ax.set_xticks(np.arange(-0.5, 27, 3), minor=True)
+    ax.set_yticks(np.arange(-0.5, 27, 3), minor=True)
+    ax.grid(which='minor', color='w', linestyle='-', linewidth=0.5)
+
+    # Sublabels (x, y, z rotating)
+    sublabels = ['x', 'y', 'z']
+    tick_labels = [sublabels[i % 3] for i in range(27)]
+    
+    main_labels = [r"$C_1$", r"$C_2$", r"$O_{C1}$", r"$H_{C1}$", r"$H_{C1}$", r"$H_{C2}$", r"$H_{C2}$", r"$H_{C2}$", r"$H_{O}$"]
+    
+    # Set sublabels for x-axis and y-axis
+    ax.set_xticks(np.arange(27))
+    ax.set_xticklabels(tick_labels)
+    ax.set_yticks(np.arange(27))
+    ax.set_yticklabels(tick_labels)
+
+    # Set main labels every 3rd column and row
+    for i, label in enumerate(main_labels):
+        ax.text(i * 3 + 1, -1.5, label, ha='center', va='center', fontsize=12, color='black', fontweight='bold', transform=ax.transData)
+        ax.text(27, i * 3 + 1, label, ha='left', va='center', fontsize=12, color='black', fontweight='bold', transform=ax.transData)
 
 def plot(structure, 
          results, 
@@ -143,22 +180,24 @@ def plot(structure,
     plt.show()
 
 
-def plot2(structure, results, properties, showDiff = True):
+def plot2(structure, results, properties, title = "", showDiff = True):
     ncols = 2 + showDiff
     nrows = len(properties)
 
     fig, axs = plt.subplots(nrows, ncols, figsize=(10, 5*nrows))
 
     def add_subplot(axs, row, col, data, title, vmin=None, vmax=None):
-        if nrows == 1:
-            im = axs[col].imshow(data, cmap="viridis", vmin=vmin, vmax=vmax)
-            axs[col].set_title(title)
-            plt.colorbar(im, ax=axs[col])
+        ax = axs[row, col] if nrows > 1 else axs[col]
+        
+        if data.shape == (27, 27):
+            plot_hessian2(data, ax, colorbar=True)
+            ax.set_title(title, pad=20)
             return
         else:
-            im = axs[row, col].imshow(data, cmap="viridis", vmin=vmin, vmax=vmax)
-            axs[row, col].set_title(title)
-            plt.colorbar(im, ax=axs[row, col])
+            im = ax.imshow(data, cmap="viridis", vmin=vmin, vmax=vmax)
+            ax.set_title(title)
+            plt.colorbar(im, ax=ax)
+            
 
     def prepare_data(true_data, pred_data):
         true_data, pred_data = true_data.cpu().numpy(), pred_data.cpu().detach().numpy()
@@ -185,7 +224,11 @@ def plot2(structure, results, properties, showDiff = True):
         if showDiff:
             add_subplot(axs, row, 2, true_data - pred_data, f"Difference", vmin, vmax)
         row += 1
-
+        
+    if title != "":
+        plt.suptitle(title)
+    else:
+        plt.suptitle("Comparison of predicted and true properties")
     plt.tight_layout()
     plt.show()
 
@@ -302,25 +345,37 @@ def plot_atoms(list_of_atoms):
     
 
 def plot_average(histories: List[List[str]], labels, title = "Average Energy History"):
-    # convert each history to numpy array and make them the same length
-    max_length = max([len(history) for history in histories[0]])
+    # Convert each history to numpy array and make them the same length
+    max_length = max(len(history) for history in histories[0])
     np_histories = np.zeros((len(histories[0]), max_length))
+    
     for i in range(len(histories[0])):
         for j in range(len(histories)):
             fitted = histories[j][i][:max_length]
             if len(fitted) < max_length:
                 fitted += [fitted[-1]] * (max_length - len(fitted))
             np_histories[i] += fitted
+    
     np_histories /= len(histories)    
 
-    # plot average
+    # Plot average
     plt.figure()
+    lines = []
     
     for i, label in enumerate(labels):
-        plt.plot(np_histories[i], label=label)
+        line, = plt.plot(np_histories[i], label=label)  # Capture line object
+        lines.append(Line2D([0], [0], color=line.get_color(), linewidth=3))  # Custom handle with thicker line
+    
+    # x axis
+    plt.xlabel("Iteration Steps")
+    plt.xlim([0, 200])
+    
+    # y axis
+    plt.ylabel("Energy in Hartree")
+    plt.ylim([np_histories.min(), -0.012])
     
     plt.title(title)
-    plt.legend()
+    plt.legend(handles=lines, labels=labels)  # Use custom legend handles
     plt.show()
     
 def plot_average_over_time(
@@ -361,8 +416,17 @@ def plot_average_over_time(
         plt.xlabel("Time (s)")
         plt.ylabel("Energy")
         
+    # y axis
+    plt.ylabel("Energy in Hartree")
+    plt.ylim([min(averages[i].min() for i in range(len(averages))), -0.012])
+    
+    lines = []
+    for i, label in enumerate(labels):
+        line, = plt.plot(timesteps, averages[i], label=label)
+        lines.append(Line2D([0], [0], color=line.get_color(), linewidth=3))     
+    
     plt.title(title)
-    plt.legend()
+    plt.legend(handles=lines, labels=labels)
     plt.show()
     
     

@@ -31,6 +31,13 @@ class GradientDescentParameters:
     
     autodiff_muh: float = 1
     
+@dataclass(init = True, repr = True)
+class BacktrackingLineSearchParams:
+    active: bool = False
+    
+    alpha: float = 0.1
+    beta: float = 0.5
+    
 
 class GradientDescentResult:
     def __init__(self, score_history: list, time_history: list, final_atom: Atoms) -> None:
@@ -49,7 +56,8 @@ class GradientDescentResult:
 def gradient_descent(
     atoms, 
     strategy: StrategyBase,
-    params: GradientDescentParameters = GradientDescentParameters()
+    gradientDescentParams: GradientDescentParameters = GradientDescentParameters(),
+    lineSearchParams: BacktrackingLineSearchParams = BacktrackingLineSearchParams()
     ) -> GradientDescentResult:
     score_history = []
     time_history = []
@@ -59,7 +67,7 @@ def gradient_descent(
     )
     inputs = converter(atoms)
     
-    step_size = params.max_step_size
+    step_size = gradientDescentParams.max_step_size
     
     i = 0
     counter = 0
@@ -70,37 +78,21 @@ def gradient_descent(
         score_history.append(energy.item())
         time_history.append(time() - t0)
         
-        if i > 100:
-            break
-        elif len(score_history) > 10 and step_size < params.tolerance:
-            break
-        else:
-            counter = 0
-            
-        # line search
-        if strategy.line_search:
-            # modify step size 
-            while True:
-                new_inputs = inputs.copy()
-                new_inputs[spk.properties.R] = inputs[spk.properties.R] + step_size * direction
-                
-                new_energy, new_forces = strategy.prepare_energy_and_forces(new_inputs)
-                if new_energy < energy + params.rho_ls * step_size * torch.dot(forces.flatten().to(dtype=torch.float32), direction.flatten()):
-                    break
-                step_size = step_size * params.rho_neg
-                if step_size < 1e-5:
-                    break
-            
         inputs[spk.properties.R] = inputs[spk.properties.R] + step_size * direction
-        if strategy.line_search:
-            step_size = min(step_size * params.rho_pos, params.max_step_size)
         
-        if not strategy.line_search:
-            # break if energy hasnt changed by 0.001 in the last 10 steps
-            if len(score_history) > 30 and score_history[-1] - score_history[-10] >= -0.0001:
-                break
-            
-        counter += 1
+        if lineSearchParams.active:
+            while True:
+                new_energy, _, _ = strategy.get_direction(inputs.copy())
+                if new_energy < energy + lineSearchParams.alpha * step_size * torch.dot(forces, direction):
+                    break
+                step_size *= lineSearchParams.beta
+                inputs[spk.properties.R] = inputs[spk.properties.R] - step_size * direction
+        
+        # break if the energy has not improved in the last 10 steps
+        if i > 30 and score_history[-1] > score_history[-30]:
+            break
+        
+        # counter += 1
         i += 1
     
     time_history[0] = 0
