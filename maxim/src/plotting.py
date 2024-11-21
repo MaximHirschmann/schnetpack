@@ -1,9 +1,15 @@
+from enum import Enum, StrEnum
 import sys
-import os 
+import os
+
+from optimization.OptimizationMetric import EnergyMetric, OptimizationMetricInterface 
 
 schnetpack_dir = os.getcwd()
 
 sys.path.insert(1, schnetpack_dir + "\\maxim\\src")
+from datatypes import GradientDescentResult
+from datatypes import OptimizationEvaluationXAxis, OptimizationEvaluationYAxis
+from datatypes import OptimizationEvaluationAllPlotsFix
 from optimization.best_evaluate import best_evaluate
 
 
@@ -11,6 +17,7 @@ from typing import List
 import matplotlib.pyplot as plt
 from matplotlib.lines import Line2D
 import numpy as np
+from datatypes import OptimizationEvaluationXAxis
 
     
 def plot_hessian(hessian):
@@ -179,7 +186,6 @@ def plot(structure,
     plt.tight_layout()
     plt.show()
 
-
 def plot2(structure, results, properties, title = "", showDiff = True):
     ncols = 2 + showDiff
     nrows = len(properties)
@@ -231,119 +237,7 @@ def plot2(structure, results, properties, title = "", showDiff = True):
         plt.suptitle("Comparison of predicted and true properties")
     plt.tight_layout()
     plt.show()
-
-
-def plot_structure(structure):
-    positions = structure["_positions"].cpu().numpy()
-    # forces = structure["forces"].cpu().numpy()
-    forces = structure["forces"].cpu().numpy()
     
-    scale_factor = 10.0
-    forces_scaled = forces * scale_factor
-        
-    # Define colors for each atom (you can customize this as needed)
-    # colors = plt.cm.jet(np.linspace(0, 1, positions_np.shape[0]))
-    colors = np.array([
-        "k",
-        "k",
-        "r",
-        "b",
-        "b",
-        "b",
-        "b",
-        "b",
-        "b"
-    ])
-
-    # Create a 3D scatter plot
-    fig = plt.figure()
-    ax = fig.add_subplot(111, projection='3d')
-
-    # Scatter plot
-    sc = ax.scatter(positions[:, 0], positions[:, 1], positions[:, 2], c=colors, s=100, label='Atom Positions')
-    
-    # Quiver plot for force vectors
-    for i in range(positions.shape[0]):
-        ax.quiver(positions[i, 0], positions[i, 1], positions[i, 2],
-                forces_scaled[i, 0], forces_scaled[i, 1], forces_scaled[i, 2],
-                color=colors[i], arrow_length_ratio=0.1, label='Force Vector' if i == 0 else "")
-
-    # Adding labels and title
-    ax.set_xlabel('X')
-    ax.set_ylabel('Y')
-    ax.set_zlabel('Z')
-    ax.set_title('3D Positions of Atoms')
-
-    # Show the plot
-    plt.legend()
-    plt.show()
-    
-# just like plot_structure but for multiple structures
-def plot_structures(structures):
-    fig, axs = plt.subplots(len(structures), 1, figsize=(10, 5*len(structures)), subplot_kw={'projection': '3d'})
-    
-    for i, structure in enumerate(structures):
-        positions = structure["_positions"].cpu().numpy()
-        forces = structure["forces"].cpu().numpy()
-        
-        scale_factor = 10.0
-        forces_scaled = forces * scale_factor
-
-        colors = np.array([
-            "k",
-            "k",
-            "r",
-            "b",
-            "b",
-            "b",
-            "b",
-            "b",
-            "b"
-        ])
-
-        sc = axs[i].scatter(positions[:, 0], positions[:, 1], positions[:, 2], c=colors, s=100, label='Atom Positions')
-        
-        for j in range(positions.shape[0]):
-            axs[i].quiver(positions[j, 0], positions[j, 1], positions[j, 2],
-                    forces_scaled[j, 0], forces_scaled[j, 1], forces_scaled[j, 2],
-                    color=colors[j], arrow_length_ratio=0.1, label='Force Vector' if j == 0 else "")
-
-        axs[i].set_xlabel('X')
-        axs[i].set_ylabel('Y')
-        axs[i].set_zlabel('Z')
-        axs[i].set_title('3D Positions of Atoms')
-        
-    plt.legend()
-    plt.tight_layout()
-    plt.show()
-    
-    
-def plot_atoms(list_of_atoms):
-    # plot the atoms into the same graph
-    
-    fig, axs = plt.subplots(1, 1, figsize=(20, 20), subplot_kw={'projection': '3d'})
-    
-    markers = ['o', '^', 's', 'P', '*', 'X', 'D']
-    colors_by_number = {
-        1: "b",
-        6: "k",
-        8: "r"
-    }
-    
-    for i, atoms in enumerate(list_of_atoms):
-        colors = [colors_by_number[num] for num in atoms.numbers]
-        positions = atoms.get_positions()
-        sc = axs.scatter(positions[:, 0], positions[:, 1], positions[:, 2], c=colors, s=100, label='Atom Positions', marker = markers[i])
-        
-    axs.set_xlabel('X')
-    axs.set_ylabel('Y')
-    axs.set_zlabel('Z')
-    axs.set_title('3D Positions of Atoms')
-    plt.legend()
-    plt.show()
-    
-    
-
 def plot_average(histories: List[List[str]], labels, title = "Average Energy History"):
     # Convert each history to numpy array and make them the same length
     max_length = max(len(history) for history in histories[0])
@@ -356,7 +250,7 @@ def plot_average(histories: List[List[str]], labels, title = "Average Energy His
                 fitted += [fitted[-1]] * (max_length - len(fitted))
             np_histories[i] += fitted
     
-    np_histories /= len(histories)    
+    np_histories /= len(histories)
 
     # Plot average
     plt.figure()
@@ -378,129 +272,229 @@ def plot_average(histories: List[List[str]], labels, title = "Average Energy His
     plt.legend(handles=lines, labels=labels)  # Use custom legend handles
     plt.show()
     
-def plot_average_over_time(
-    results, #: List[List[GradientDescentResult]] 
-    labels, 
-    title = "Average Energy History Over Time",
-    timeframe = 3):
+
     
-    timesteps = np.linspace(0, timeframe, 100) # from t = 0s to t = 10s with 100 timesteps
     
-    # Transpose
-    results_by_strategy = [[] for _ in labels]
-    for i in results:
-        for j, result in enumerate(i):
-            results_by_strategy[j].append(result)
+def get_x_axis_values(
+    results: List[List[GradientDescentResult]],
+    x_axis: OptimizationEvaluationXAxis
+) -> List[List[List[float]]]:
+    """
+    Extract the x-axis values (either iteration steps or real time) 
+    based on the x_axis parameter.
+    """
+    if x_axis == OptimizationEvaluationXAxis.Iteration:
+        # Use iteration steps as x-axis
+        return [
+            [list(range(len(result.position_history))) for result in strategy_results]
+            for strategy_results in results
+        ]
+    elif x_axis == OptimizationEvaluationXAxis.Time:
+        # Use time history as x-axis
+        return [
+            [result.time_history for result in strategy_results]
+            for strategy_results in results
+        ]
+    else:
+        raise ValueError(f"Unsupported x_axis value: {x_axis}")
+
+
+def plot_average(
+    results: List[List[GradientDescentResult]],
+    labels: List[str],
+    metric: OptimizationMetricInterface,
+    x_axis: OptimizationEvaluationXAxis = OptimizationEvaluationXAxis.Iteration,
+    title="Average Energy History Over Time",
+):
+    # Get x-axis values dynamically
+    x_values = get_x_axis_values(results, x_axis)
     
-    averages = [np.zeros(len(timesteps)) for _ in labels]
-    for i, strategy_result in enumerate(results_by_strategy):
-        for result in strategy_result:
-            scores = [0]
-            i_timesteps = 0
-            i_history = 0
-            while i_timesteps < len(timesteps) and i_history < len(result.score_history):
-                if result.time_history[i_history] <= timesteps[i_timesteps]:
-                    scores[-1] = result.score_history[i_history]
-                    i_history += 1
-                else:
-                    scores.append(scores[-1])
-                    i_timesteps += 1
-            scores = scores[:len(timesteps)]
-            scores = scores + [scores[-1]] * (len(timesteps) - len(scores))
-            averages[i] += scores
-        averages[i] /= len(strategy_result)
+    # Extract scores: runs x strategies x iteration_steps
+    scores = [[[scores[metric.name] for scores in result.score_history] 
+               for result in strategy_results] for strategy_results in results]
+    
+    # Transpose to strategies x runs x iteration_steps
+    scores = [list(strategy_scores) for strategy_scores in zip(*scores)]
+    x_values = [list(strategy_x_values) for strategy_x_values in zip(*x_values)]
+    
+    average_scores = []
+    average_x_values = []
+    if x_axis == OptimizationEvaluationXAxis.Iteration:
+        for strategy_scores in scores:
+            max_length = max(len(run_scores) for run_scores in strategy_scores)
+            sums = np.zeros(max_length)
+            counts = np.zeros(max_length)
+            for run_scores in strategy_scores:
+                for i in range(max_length):
+                    if i < len(run_scores):
+                        sums[i] += run_scores[i]
+                        counts[i] += 1
+                    else:
+                        sums[i] += run_scores[-1]
+                        counts[i] += 1
+            averages = sums / counts
+            average_scores.append(averages)
+            average_x_values.append(list(range(len(averages))))
+    elif x_axis == OptimizationEvaluationXAxis.Time:
+        even_time = np.linspace(0, 3, 100)
+        for strategy_scores, strategy_x_values in zip(scores, x_values):
+            averages = np.zeros(len(even_time))
+            counts = np.zeros(len(even_time))
+            for run_scores, run_x_values in zip(strategy_scores, strategy_x_values):
+                # choose the value of the closest time point
+                for i, time in enumerate(even_time):
+                    closest_idx = np.argmin(np.abs(np.array(run_x_values) - time))
+                    averages[i] += run_scores[closest_idx]
+                    counts[i] += 1
+                    
+            averages /= counts
+            average_scores.append(averages)
+            average_x_values.append(even_time)
         
-    plt.figure()
-    for i, label in enumerate(labels):
-        plt.plot(timesteps, averages[i], label=label)
-        plt.xlabel("Time (s)")
-        plt.ylabel("Energy")
-        
-    # y axis
-    plt.ylabel("Energy in Hartree")
-    plt.ylim([min(averages[i].min() for i in range(len(averages))), -0.012])
+    # Initialize plot
+    plt.figure(figsize=(10, 6))
     
+    # Plot averages and prepare legend handles
     lines = []
-    for i, label in enumerate(labels):
-        line, = plt.plot(timesteps, averages[i], label=label)
-        lines.append(Line2D([0], [0], color=line.get_color(), linewidth=3))     
+    for i, (label, averages, x_vals) in enumerate(zip(labels, average_scores, average_x_values)):
+        line, = plt.plot(x_vals, averages, label=label, linewidth=2)
+        lines.append(Line2D([0], [0], color=line.get_color(), linewidth=3))
     
+    # Plot aesthetics
+    plt.xlabel("Time (s)" if x_axis == OptimizationEvaluationXAxis.Time else "Iteration Steps")
+    max_x = None
+    if x_axis == OptimizationEvaluationXAxis.Iteration:
+        max_x = 300
+    elif x_axis == OptimizationEvaluationXAxis.Time:
+        max_x = 3
+    plt.xlim([0, min(max(len(x) for x in average_x_values), max_x)])  # Custom range for x-axis
+    plt.ylabel("Energy in Hartree")
+    # average_after_10_steps = np.mean([avg[10] for avg in average_scores], axis=0)
+    # plt.ylim([min(min(avg) for avg in average_scores), average_after_10_steps])  # Custom range for y-axis
     plt.title(title)
-    plt.legend(handles=lines, labels=labels)
+    plt.grid(True, linestyle='--', alpha=0.7)
+    plt.legend(handles=lines, labels=labels, loc='best')
+    plt.tight_layout()
     plt.show()
     
+def plot_all_runs(
+    results: List[List[GradientDescentResult]],
+    labels: List[str],
+    metric: OptimizationMetricInterface,
+    fix: OptimizationEvaluationAllPlotsFix,
+    x_axis: OptimizationEvaluationXAxis = OptimizationEvaluationXAxis.Iteration,
+    title="Optimization Results Across Runs",
+):
+    """
+    Plot all individual runs for each strategy using subplots.
+    Each subplot corresponds to one strategy or run, depending on the fix.
+    """
+    # Get x-axis values dynamically
+    x_values = get_x_axis_values(results, x_axis)
+
+    # Extract scores: runs x strategies x iteration_steps
+    scores = [[[scores[metric.name] for scores in result.score_history] 
+               for result in strategy_results] for strategy_results in results]
+
+    # Transpose to strategies x runs x iteration_steps
+    scores_T = [list(strategy_scores) for strategy_scores in zip(*scores)]
+    x_values = [list(strategy_x_values) for strategy_x_values in zip(*x_values)]
+
+    # Determine the number of rows and columns for subplots
+    if fix == OptimizationEvaluationAllPlotsFix.Strategy:
+        n_rows = len(labels)
+        n_cols = 1
+    elif fix == OptimizationEvaluationAllPlotsFix.Run:
+        n_rows = len(scores)  # Number of runs
+        n_cols = 1
+    else:
+        raise ValueError(f"Unsupported fix type: {fix}")
+
+    # Initialize subplots
+    fig, axes = plt.subplots(n_rows, n_cols, figsize=(10, 5 * n_rows), sharex=True, sharey=True)
+
+    # Ensure axes are iterable (handle case with single subplot)
+    if n_rows == 1:
+        axes = [axes]
+
+    max_x = None
+    if x_axis == OptimizationEvaluationXAxis.Iteration:
+        max_x = 200
+    elif x_axis == OptimizationEvaluationXAxis.Time:
+        max_x = 2 # seconds
+        
+    # Plot based on fix type
+    if fix == OptimizationEvaluationAllPlotsFix.Strategy:
+        for i, (strategy_scores, strategy_x_values, label) in enumerate(zip(scores_T, x_values, labels)):
+            ax = axes[i]
+            for run_scores, run_x_values in zip(strategy_scores, strategy_x_values):
+                ax.plot(run_x_values, run_scores, alpha=0.7)
+            ax.set_title(label)
+            # ax.set_xlabel("Time (s)" if x_axis == OptimizationEvaluationXAxis.Time else "Iteration Steps")
+            ax.set_ylabel("Energy in Hartree")
+            ax.grid(True, linestyle='--', alpha=0.5)
+            # ax.set_ylim([min(min(score) for score in strategy_scores), -0.012])
+            ax.set_xlim([0, min(max(len(x) for x in strategy_x_values), max_x)])
+
+    elif fix == OptimizationEvaluationAllPlotsFix.Run:
+        for i in range(len(scores)):
+            for j in range(len(scores[i])):
+                ax = axes[i]
+                ax.plot(x_values[j][i], scores[i][j], alpha=0.7, label=labels[j])
+                ax.set_title(f"Run {i + 1}")
+                # ax.set_xlabel("Time (s)" if x_axis == OptimizationEvaluationXAxis.Time else "Iteration Steps")
+                ax.set_ylabel("Energy in Hartree")
+                ax.grid(True, linestyle='--', alpha=0.5)
+                # ax.set_ylim([min(min(score) for score in scores[i]), -0.012])
+                ax.set_xlim([0, max_x])
+
+    # Overall title and layout adjustments
+    fig.suptitle(title, fontsize=16, y=0.98)
+    fig.text(0.5, 0.04, "Time (s)" if x_axis == OptimizationEvaluationXAxis.Time else "Iteration Steps", ha='center')
+    # fig.text(0.04, 0.5, "Energy in Hartree", va='center', rotation='vertical')
     
-def plot_all_histories(histories: List[List[str]], labels, title = "All Energy Histories"):
-    cols = 6
-    fig, axs = plt.subplots(int(np.ceil(len(histories) / cols)), cols, figsize=(15, 15))
-    
-    for i, history in enumerate(histories):
-        if len(histories) <= cols:
-            ax = axs[i]
-        else:
-            ax = axs[i // cols, i % cols]
-        for j, strategy_history in enumerate(histories[i]):
-            ax.plot(strategy_history, label=labels[j])
-            
+    # legend
     handles, labels = ax.get_legend_handles_labels()
     fig.legend(handles, labels, loc='center right')
-    plt.suptitle(title)
+    
+    plt.tight_layout(rect=[0.04, 0.04, 1, 0.95])
     plt.show()
+    
+
+def plot_atom(positions, numbers, title = ""):
+    colors = {6: "black", 8: "red", 1: "blue"}
+    colors = [colors[n] for n in numbers]
+    charges = {6: "C", 8: "O", 1: "H"}
+    
+    fig = plt.figure()
+    ax = fig.add_subplot(111, projection='3d')
+    
+    # draw the bond between atom (0, 2) and (2, 8)
+    for i, j in [(0, 2), (2, 8), (0, 1), (0, 3), (0, 4), (1, 7), (1, 5), (1, 6)]:
+        x = [positions[i][0], positions[j][0]]
+        y = [positions[i][1], positions[j][1]]
+        z = [positions[i][2], positions[j][2]]
+        ax.plot(x, y, z, c="gray")
         
-def plot_true_values(results, labels, base_atom, base_internal_energy):
-    title = "Final positions evaluated by best model"
-    labels = labels + ["Base"]
+    for i, (x, y, z) in enumerate(positions):
+        ax.scatter(x, y, z, c=colors[i], label=i, s=100)
+        ax.text(x, y, z + 0.15, f"{charges[numbers[i]]}", color='black')  # Shift the label slightly above the point
     
-    length = len(results[0]) + 1
-    final_internal_values = np.zeros(length)
-    final_global_values = np.zeros(length)
-    for i in range(len(results)):
-        for j in range(len(results[i])):
-            final_internal_values[j] += results[i][j].score_history[-1]
-            final_global_values[j] += best_evaluate(results[i][j].final_atom)
-    final_internal_values /= len(results)
-    final_global_values /= len(results)
+    # remove the axis
+    ax.set_xticklabels([])
+    ax.set_yticklabels([])
+    ax.set_zticklabels([])
     
-    final_internal_values[-1] = base_internal_energy
-    final_global_values[-1] = best_evaluate(base_atom)
     
-    # display two bar plots
-    fig, axs = plt.subplots(2, 1, figsize=(10, 10))
-    
-    rect1 = axs[0].bar(np.arange(length), final_internal_values, 0.35, label="Internal")
-    rect2 = axs[1].bar(np.arange(length), final_global_values, 0.35, label="Global")
-    
-    axs[0].set_xticks(np.arange(length))
-    axs[0].set_xticklabels(labels)
-    axs[0].set_title(title)
-    # set y limit
-    axs[0].set_ylim([final_internal_values.min(), final_internal_values.max()])
-    
-    axs[1].set_xticks(np.arange(length))
-    axs[1].set_xticklabels(labels)
-    axs[1].set_ylim([final_global_values.min(), final_global_values.max()])
-    
-    # different colors
-    for i in range(len(rect1)):
-        rect1[i].set_color('C0')
-        rect2[i].set_color('C1')
+    if title != "":
+        plt.title(title)
         
-    axs[0].legend()
-    axs[1].legend()
+    # rotate
+    ax.view_init(elev=30, azim=20)
+
+    # plt.legend()
     plt.show()
-        
-        
-    # bar plot
-    # fig, axs = plt.subplots()
     
-    # rect1 = axs.bar(np.arange(len(labels)), final_internal_values, 0.35, label="Internal")
-    # rect2 = axs.bar(np.arange(len(labels)) + 0.35, final_global_values, 0.35, label="Global")
-    
-    # axs.set_xticks(np.arange(len(labels)))
-    # axs.set_xticklabels(labels)
-    # axs.set_title(title)
-    # axs.legend()
-    # plt.show()
     
 if __name__ == "__main__":
     hessian = np.random.rand(27, 27)

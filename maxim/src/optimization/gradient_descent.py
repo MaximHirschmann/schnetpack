@@ -1,30 +1,31 @@
 
 import os
 import sys
-
 from ase import Atoms
 from matplotlib import pyplot as plt
+from dataclasses import dataclass
+import torch
+from typing import List
+import numpy as np
+from time import time
+
+from Utils import load_data, timed
+from datatypes import GradientDescentResult
+from .strategies import AutoDiffHessianStrategy, StrategyBase
 
 schnetpack_dir = os.getcwd()
 sys.path.insert(1, schnetpack_dir + "\\src")
-
 import schnetpack as spk
 import schnetpack.transform as trn
 
-sys.path.insert(1, schnetpack_dir + "\\maxim\\src")
-from strategies import AutoDiffHessianStrategy, StrategyBase
-from Utils import load_data, timed
 
-from dataclasses import dataclass
-import torch
-from time import time
 
 
 
 @dataclass(init = True, repr = True)
 class GradientDescentParameters:
     tolerance: float = 5e-3
-    max_step_size: float = 0.05
+    max_step_size: float = 1e-2
     rho_pos: float = 1.2
     rho_neg: float = 0.5
     rho_ls: float = 1e-4
@@ -39,19 +40,6 @@ class BacktrackingLineSearchParams:
     beta: float = 0.5
     
 
-class GradientDescentResult:
-    def __init__(self, score_history: list, time_history: list, final_atom: Atoms) -> None:
-        self.score_history = score_history
-        self.time_history = time_history
-        self.final_atom = final_atom
-        
-        self.total_time = time_history[-1]
-        self.total_steps = len(score_history)
-
-    def plot_score(self):
-        plt.plot(self.time_history, self.score_history, "ro-")
-        plt.show()
-
 @timed
 def gradient_descent(
     atoms, 
@@ -61,6 +49,7 @@ def gradient_descent(
     ) -> GradientDescentResult:
     score_history = []
     time_history = []
+    position_history = []
     
     converter = spk.interfaces.AtomsConverter(
         neighbor_list=trn.ASENeighborList(cutoff=5.0), dtype=torch.float32, device=device
@@ -75,8 +64,11 @@ def gradient_descent(
     while True:
         energy, forces, direction = strategy.get_direction(inputs.copy())
         
-        score_history.append(energy.item())
+        score_history.append({
+            "basic": energy.item(),
+        })
         time_history.append(time() - t0)
+        position_history.append(inputs[spk.properties.R].detach().numpy())
         
         inputs[spk.properties.R] = inputs[spk.properties.R] + step_size * direction
         
@@ -89,17 +81,24 @@ def gradient_descent(
                 inputs[spk.properties.R] = inputs[spk.properties.R] - step_size * direction
         
         # break if the energy has not improved in the last 10 steps
-        if i > 30 and score_history[-1] > score_history[-30]:
+        if i > 30 and score_history[-1]["basic"] > score_history[-30]["basic"]:
+            break
+        if i > 300:
             break
         
         # counter += 1
         i += 1
     
+    # start should be 0
     time_history[0] = 0
-    final_atom = atoms
-    final_atom.positions = inputs[spk.properties.R].detach().numpy()
     
-    return GradientDescentResult(score_history, time_history, final_atom)
+    # end with the best score
+    best_idx = min(range(len(score_history)), key = lambda i: score_history[i]["basic"])
+    score_history.append(score_history[best_idx])
+    time_history.append(time() - t0)
+    position_history.append(position_history[best_idx])
+    
+    return GradientDescentResult(score_history, position_history, time_history)
     
     
 device = "cpu"
