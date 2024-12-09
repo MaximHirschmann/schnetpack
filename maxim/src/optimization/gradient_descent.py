@@ -11,32 +11,19 @@ from time import time
 
 from Utils import load_data, timed
 from datatypes import GradientDescentResult
-from .strategies import AutoDiffHessianStrategy, StrategyBase
+from .strategies import StrategyBase
+from .GradientDescentParameters import GDParams
 
 schnetpack_dir = os.getcwd()
 sys.path.insert(1, schnetpack_dir + "\\src")
 import schnetpack as spk
 import schnetpack.transform as trn
-
-
-
-
-
-@dataclass(init = True, repr = True)
-class GradientDescentParameters:
-    tolerance: float = 5e-3
-    max_step_size: float = 1e-2
-    rho_pos: float = 1.2
-    rho_neg: float = 0.5
-    rho_ls: float = 1e-4
-    
-    autodiff_muh: float = 1
     
 @dataclass(init = True, repr = True)
 class BacktrackingLineSearchParams:
     active: bool = False
     
-    alpha: float = 0.1
+    alpha: float = 1e-3
     beta: float = 0.5
     
 
@@ -44,18 +31,17 @@ class BacktrackingLineSearchParams:
 def gradient_descent(
     atoms, 
     strategy: StrategyBase,
-    gradientDescentParams: GradientDescentParameters = GradientDescentParameters(),
     lineSearchParams: BacktrackingLineSearchParams = BacktrackingLineSearchParams()
     ) -> GradientDescentResult:
     score_history = []
     time_history = []
     position_history = []
-    
     converter = spk.interfaces.AtomsConverter(
         neighbor_list=trn.ASENeighborList(cutoff=5.0), dtype=torch.float32, device=device
     )
     inputs = converter(atoms)
     
+    gradientDescentParams = strategy.gradient_descent_params
     step_size = gradientDescentParams.max_step_size
     
     i = 0
@@ -63,27 +49,41 @@ def gradient_descent(
     t0 = time()
     while True:
         energy, forces, direction = strategy.get_direction(inputs.copy())
+        direction = direction.to(dtype=torch.float32)
         
         score_history.append({
             "basic": energy.item(),
+            "force_norm": torch.linalg.norm(forces).item(),
+            "direction_norm": torch.linalg.norm(direction).item()
         })
         time_history.append(time() - t0)
         position_history.append(inputs[spk.properties.R].detach().numpy())
         
+        step_size = gradientDescentParams.max_step_size
         inputs[spk.properties.R] = inputs[spk.properties.R] + step_size * direction
         
+        # Line search logic
         if lineSearchParams.active:
+            line_search_counter = 0  # Optional: to limit line search iterations
             while True:
                 new_energy, _, _ = strategy.get_direction(inputs.copy())
-                if new_energy < energy + lineSearchParams.alpha * step_size * torch.dot(forces, direction):
+                improvement = lineSearchParams.alpha * step_size * torch.dot(
+                    forces.flatten(), direction.flatten().to(dtype=torch.float64)
+                )
+                if new_energy < energy + improvement:
                     break
                 step_size *= lineSearchParams.beta
-                inputs[spk.properties.R] = inputs[spk.properties.R] - step_size * direction
+                inputs[spk.properties.R] -= step_size * direction
+                
+                line_search_counter += 1
+                if line_search_counter > 50:  # Prevent infinite loop
+                    print("Line search iteration limit reached.")
+                    break
         
         # break if the energy has not improved in the last 10 steps
         if i > 30 and score_history[-1]["basic"] > score_history[-30]["basic"]:
             break
-        if i > 300:
+        if i > 100:
             break
         
         # counter += 1

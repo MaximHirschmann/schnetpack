@@ -77,10 +77,11 @@ def create_databases():
             "energy": "Hartree",
             "forces": "Hartree/Bohr",
             "hessian": "Hartree/Bohr/Bohr",
+            "hessian_pd": "Hartree/Bohr/Bohr",
             "inv_hessian": "Bohr/Hartree/Bohr",
             "newton_step": "Hartree/Bohr",
-            "original_hessian": "Hartree/Bohr/Bohr",
-            "original_diagonal": "Hartree/Bohr/Bohr",
+            "newton_step_pd": "Hartree/Bohr",
+            "diagonal": "Hartree/Bohr/Bohr",
         },
     )
 
@@ -89,18 +90,20 @@ def create_databases():
 
         pd_hessians = levenberg_marquardt(hessians)
         
-        newton_step = np.linalg.solve(pd_hessians, -forces.flatten()).reshape(forces.shape)
-        
+        newton_step = np.linalg.solve(hessians, -forces.flatten()).reshape(forces.shape)
+        newton_step_pd = np.linalg.solve(pd_hessians, -forces.flatten()).reshape(forces.shape)
+
         inv_hessian = np.linalg.inv(pd_hessians)
         
         properties = {
             "energy": energies[None],
             "forces": forces,
-            "hessian": pd_hessians,
-            "newton_step": newton_step,
+            "hessian": hessians,
+            "hessian_pd": pd_hessians,
             "inv_hessian": inv_hessian,
-            "original_hessian": hessians,
-            "original_diagonal": np.diag(hessians),
+            "newton_step": newton_step,
+            "newton_step_pd": newton_step_pd,
+            "diagonal": np.diag(hessians),
         }
 
         new_dataset.add_systems([properties], [at])
@@ -187,17 +190,16 @@ def check_data():
     plt.tight_layout()
     plt.show()
         
-        
-
+    
 data_directory = os.getcwd() + "\\maxim\\data\\"
 raw_data_dir = data_directory + "ene_grad_hess_1000eth"
 rmd17_data_path = data_directory + "rMD17\\rMD17.db"
 database_file = data_directory + "custom_database.db"
 model_file = os.getcwd() + "\\maxim\\best_inference_model"
 
-model = ""
-# model = torch.load(model_file)
+if __name__ == "__main__":
+    model = ""
+    # model = torch.load(model_file)
 
-
-# create_databases()
-check_data()
+    create_databases()
+    check_data()

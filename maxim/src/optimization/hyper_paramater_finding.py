@@ -9,7 +9,7 @@ import schnetpack.transform as trn
 
 sys.path.insert(1, schnetpack_dir + "\\maxim\\src")
 from strategies import *
-from gradient_descent import GradientDescentParameters, gradient_descent
+from gradient_descent import GDParams, gradient_descent
 from Utils import load_data
 
 import torch
@@ -21,16 +21,16 @@ from tabulate import tabulate
 
 class StrategyEvalutionResult:
     strategy: StrategyBase
-    gradient_descent_params: GradientDescentParameters
+    gradient_descent_params: GDParams
     avg_score: float
     avg_steps: float
     avg_time: float
     
 
 def strategy_evaluation(data, strategy: StrategyBase, N: int = 100, 
-                        gradient_descent_params: GradientDescentParameters = GradientDescentParameters()):
+                        gradient_descent_params: GDParams = GDParams()):
     if type(strategy) is AutoDiffHessianStrategy:
-        strategy.muh = gradient_descent_params.autodiff_muh
+        strategy.tau = gradient_descent_params.autodiff_muh
         
     t0 = time()
     steps = 0
@@ -68,11 +68,11 @@ def strategy_evaluation(data, strategy: StrategyBase, N: int = 100,
 
 def hyperparameter_search(data):
     params = [
-        GradientDescentParameters(autodiff_muh = 0),
-        GradientDescentParameters(autodiff_muh = 0.01),
-        GradientDescentParameters(autodiff_muh = 0.1),
-        GradientDescentParameters(autodiff_muh = 1),
-        GradientDescentParameters(autodiff_muh = 2),
+        GDParams(autodiff_muh = 0),
+        GDParams(autodiff_muh = 0.01),
+        GDParams(autodiff_muh = 0.1),
+        GDParams(autodiff_muh = 1),
+        GDParams(autodiff_muh = 2),
     ]
     results = []
     for param in params:

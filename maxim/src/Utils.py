@@ -43,6 +43,8 @@ def load_model(
     
     return best_model
 
+def get_model_path(model_name: str):
+    return os.path.join(schnetpack_dir, "maxim\\models", model_name)
 
 def load_data():
     # filepath_hessian_db = os.path.join(schnetpack_dir, 'maxim\\data\\ene_grad_hess_1000eth\\data.db')
@@ -53,11 +55,14 @@ def load_data():
         filepath_hessian_db, 
         distance_unit="Ang",
         property_units={
-                "energy": "Hartree",
-                "forces": "Hartree/Bohr",
-                "hessian": "Hartree/Bohr/Bohr",
-                "inv_hessian": "Bohr/Hartree/Bohr",
-                "newton_step": "Hartree/Bohr",
+                "energy": "eV",
+                "forces": "eV/Ang",
+                "hessian": "eV/Ang/Ang",
+                "hessian_pd": "eV/Ang/Ang",
+                "inv_hessian": "Ang/eV/Ang",
+                "newton_step": "eV/Ang",
+                "newton_step_pd": "eV/Ang",
+                "diagonal": "eV/Ang/Ang",
             },
         batch_size=10,
         

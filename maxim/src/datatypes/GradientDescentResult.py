@@ -14,7 +14,6 @@ class GradientDescentResult:
         
         self.total_time = time_history[-1]
         self.total_steps = len(score_history)
-        
 
     def plot_score(self):
         plt.plot(self.time_history, self.score_history, "ro-")

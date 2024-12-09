@@ -12,13 +12,15 @@ sys.path.insert(1, schnetpack_dir + "\\src")
 import schnetpack as spk
 import schnetpack.transform as trn
 
-
+import ase
 from ase.io.extxyz import read_xyz
+from ase.visualize import view
 import matplotlib.pyplot as plt
 
 class OptimizationMetricInterface(ABC):
-    def __init__(self, name, *args, **kwarg):
+    def __init__(self, name, y_axis, *args, **kwarg):
         self.name = name
+        self.y_axis = y_axis
     
     @abstractmethod
     def calculate_energy(self, atom_position: np.array) -> float:
@@ -26,8 +28,8 @@ class OptimizationMetricInterface(ABC):
     
     
 class EnergyMetric(OptimizationMetricInterface):
-    def __init__(self, energy_model, name: str, molecule_numbers, device = "cuda" if torch.cuda.is_available() else "cpu"):
-        super().__init__(name)
+    def __init__(self, energy_model, name: str, molecule_numbers, device = "cpu"):
+        super().__init__(name, "Energy in Hartree")
         self.energy_model = energy_model
         
         self.converter = spk.interfaces.AtomsConverter(
@@ -47,22 +49,44 @@ class EnergyMetric(OptimizationMetricInterface):
         return float(self.energy_model(inputs)['energy'].item())
 
 class ClosestMinimumMetric(OptimizationMetricInterface):
-    def __init__(self):
-        super().__init__("ClosestMinimum")
+    def __init__(self, molecule_numbers):
+        super().__init__("ClosestMinimum", "Distance to closest minimum")
         
+        self.molecule_numbers = molecule_numbers
         # load conformations from .xyz file
         with open("./maxim/src/optimization/found_conformers_run0.xyz", "r") as f:
-            self.conformers = list(read_xyz(f, index = 0)) # three
+            self.conformers = ase.io.read(f, index = ":")
+
+            # self.conformers = list(read_xyz(f, index = ":")) # three
         
     def calculate_energy(self, atom_position: np.array) -> float:
         min_distance = float("inf")
         
+        atom = Atoms(numbers = self.molecule_numbers, positions = atom_position)
+        
         for conformer in self.conformers:
-            distance = np.linalg.norm(atom_position - conformer.positions)
+            ase.build.minimize_rotation_and_translation(conformer, atom)
+
+            distance = np.linalg.norm(atom.positions - conformer.positions)
             if distance < min_distance:
                 min_distance = distance
                 
         return min_distance
+    
+    def plot_all(self, atom_position):
+        for conformer in self.conformers:
+            pos = np.concatenate((atom_position, conformer.positions))
+            at_nums = np.concatenate((self.molecule_numbers, conformer.numbers))
+            at = Atoms(numbers=at_nums, positions=pos)
+            view(at)
+            
+    
+class ForceNormMetric(OptimizationMetricInterface):
+    def __init__(self, name: str, device = "cpu"):
+        super().__init__(name, "Norm of Forces")
+        
+    def calculate_energy(self, atom_position: np.array) -> float:
+        return 0
     
     
     

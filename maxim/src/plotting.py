@@ -55,7 +55,7 @@ def plot_hessian(hessian):
     
     plt.show()
     
-def plot_hessian2(hessian, ax=None, colorbar=True):
+def plot_hessian2(hessian, ax=None, colorbar=True, vmin=None, vmax = None):
     # Assumes the hessian is of shape 27 x 27
     if type(hessian) is not np.ndarray:
         hessian = hessian.cpu().detach().numpy()
@@ -64,7 +64,10 @@ def plot_hessian2(hessian, ax=None, colorbar=True):
         fig, ax = plt.subplots()
 
     # Plot the hessian
-    cax = ax.imshow(hessian, cmap="viridis", vmin = -0.5, vmax = 0.5)
+    if vmin is None or vmax is None:
+        cax = ax.imshow(hessian, cmap="viridis")
+    else:
+        cax = ax.imshow(hessian, cmap="viridis", vmin=vmin, vmax=vmax)
     
     # Optionally add a colorbar (assumes plt.colorbar if outside of subplot control)
     if colorbar:
@@ -196,7 +199,7 @@ def plot2(structure, results, properties, title = "", showDiff = True):
         ax = axs[row, col] if nrows > 1 else axs[col]
         
         if data.shape == (27, 27):
-            plot_hessian2(data, ax, colorbar=True)
+            plot_hessian2(data, ax, colorbar=True, vmin=vmin, vmax=vmax)
             ax.set_title(title, pad=20)
             return
         else:
@@ -215,9 +218,9 @@ def plot2(structure, results, properties, title = "", showDiff = True):
         vmin = min(true_data.min(), pred_data.min())
         vmax = max(true_data.max(), pred_data.max())
         
-        if -1 < vmin < 0 and 0 < vmax < 1:
-            vmin = -0.75
-            vmax = 0.75
+        # if -1 < vmin < 0 and 0 < vmax < 1:
+        #     vmin = -0.75
+        #     vmax = 0.75
 
         return true_data, pred_data, vmin, vmax
     
@@ -368,9 +371,11 @@ def plot_average(
     elif x_axis == OptimizationEvaluationXAxis.Time:
         max_x = 3
     plt.xlim([0, min(max(len(x) for x in average_x_values), max_x)])  # Custom range for x-axis
-    plt.ylabel("Energy in Hartree")
+    plt.ylabel(metric.y_axis)
     # average_after_10_steps = np.mean([avg[10] for avg in average_scores], axis=0)
-    # plt.ylim([min(min(avg) for avg in average_scores), average_after_10_steps])  # Custom range for y-axis
+    if metric.name == "basic":
+        plt.ylim([-97095, -97070])
+    
     plt.title(title)
     plt.grid(True, linestyle='--', alpha=0.7)
     plt.legend(handles=lines, labels=labels, loc='best')
@@ -405,13 +410,13 @@ def plot_all_runs(
         n_rows = len(labels)
         n_cols = 1
     elif fix == OptimizationEvaluationAllPlotsFix.Run:
-        n_rows = len(scores)  # Number of runs
-        n_cols = 1
+        n_rows = 3
+        n_cols = 1 + (len(scores) - 1) // n_rows
     else:
         raise ValueError(f"Unsupported fix type: {fix}")
 
     # Initialize subplots
-    fig, axes = plt.subplots(n_rows, n_cols, figsize=(10, 5 * n_rows), sharex=True, sharey=True)
+    fig, axes = plt.subplots(n_rows, n_cols, figsize=(10, 5 * n_rows), sharex=True)
 
     # Ensure axes are iterable (handle case with single subplot)
     if n_rows == 1:
@@ -426,26 +431,32 @@ def plot_all_runs(
     # Plot based on fix type
     if fix == OptimizationEvaluationAllPlotsFix.Strategy:
         for i, (strategy_scores, strategy_x_values, label) in enumerate(zip(scores_T, x_values, labels)):
-            ax = axes[i]
+            ax = axes[i // n_cols, i % n_cols]
             for run_scores, run_x_values in zip(strategy_scores, strategy_x_values):
                 ax.plot(run_x_values, run_scores, alpha=0.7)
             ax.set_title(label)
             # ax.set_xlabel("Time (s)" if x_axis == OptimizationEvaluationXAxis.Time else "Iteration Steps")
-            ax.set_ylabel("Energy in Hartree")
+            ax.set_ylabel(metric.y_axis)
             ax.grid(True, linestyle='--', alpha=0.5)
             # ax.set_ylim([min(min(score) for score in strategy_scores), -0.012])
             ax.set_xlim([0, min(max(len(x) for x in strategy_x_values), max_x)])
 
     elif fix == OptimizationEvaluationAllPlotsFix.Run:
         for i in range(len(scores)):
+            ax = axes[i // n_cols, i % n_cols]
             for j in range(len(scores[i])):
-                ax = axes[i]
                 ax.plot(x_values[j][i], scores[i][j], alpha=0.7, label=labels[j])
                 ax.set_title(f"Run {i + 1}")
                 # ax.set_xlabel("Time (s)" if x_axis == OptimizationEvaluationXAxis.Time else "Iteration Steps")
-                ax.set_ylabel("Energy in Hartree")
+                ax.set_ylabel(metric.y_axis)
                 ax.grid(True, linestyle='--', alpha=0.5)
-                # ax.set_ylim([min(min(score) for score in scores[i]), -0.012])
+                min_value = min(score for score in scores[i][j])
+                max_value = max(score for score in scores[i][j])
+                ax.set_ylim([
+                    min_value - ((max_value - min_value) * 0.1), 
+                    max_value + ((max_value - min_value) * 0.1)
+                    ])
+                ax.set_yticks([min_value, max_value])
                 ax.set_xlim([0, max_x])
 
     # Overall title and layout adjustments
@@ -457,7 +468,7 @@ def plot_all_runs(
     handles, labels = ax.get_legend_handles_labels()
     fig.legend(handles, labels, loc='center right')
     
-    plt.tight_layout(rect=[0.04, 0.04, 1, 0.95])
+    # plt.tight_layout(rect=[0.04, 0.04, 1, 0.95])
     plt.show()
     
 
@@ -493,7 +504,7 @@ def plot_atom(positions, numbers, title = ""):
     ax.view_init(elev=30, azim=20)
 
     # plt.legend()
-    plt.show()
+    # plt.show()
     
     
 if __name__ == "__main__":

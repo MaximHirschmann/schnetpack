@@ -2,9 +2,20 @@
 import sys
 import os 
 from time import time
-from plotting import plot, plot_structure, plot2
+from plotting import plot, plot2
 from Utils import load_model, load_data
+import torch
+import numpy as np
 
+schnetpack_dir = os.getcwd()
+sys.path.insert(1, schnetpack_dir + "\\src")
+import schnetpack as spk
+from schnetpack.data import ASEAtomsData
+import schnetpack.transform as trn
+from schnetpack.interfaces import SpkCalculator
+from ase import Atoms
+import torchmetrics
+import pytorch_lightning as pl
 
 def logger(func):
     def wrapper(*args, **kwargs):
@@ -20,15 +31,14 @@ def get_training_directory():
 
 
 @logger
-def train(data):
-    epochs = 10
-    continue_last_training = True
+def train(data, continue_last_training = False):
+    epochs = 30
     properties_to_train_for = [
-        "original_hessian"
+        "newton_step_pd"
     ]
     
     cutoff = 5.
-    n_atom_basis = 30
+    n_atom_basis = 128
     pairwise_distance = spk.atomistic.PairwiseDistances() # calculates pairwise distances between atoms
     radial_basis = spk.nn.GaussianRBF(n_rbf=20, cutoff=cutoff)
     paiNN = spk.representation.PaiNN(
@@ -37,18 +47,17 @@ def train(data):
         radial_basis=radial_basis,
         cutoff_fn=spk.nn.CosineCutoff(cutoff)
     )
-
+    
     module_for_property = {
         "energy": spk.atomistic.Atomwise(n_in=n_atom_basis, output_key="energy"),
         "forces": spk.atomistic.Forces(energy_key="energy", force_key="forces"),
         "polarizability": spk.atomistic.Polarizability(n_in = n_atom_basis, polarizability_key = "polarizability"),
         "newton_step": spk.atomistic.NewtonStep(n_in = n_atom_basis, newton_step_key = "newton_step"),
-        "best_direction": spk.atomistic.BestDirection(n_in = n_atom_basis, best_direction_key = "best_direction"),
-        "forces_copy": spk.atomistic.Forces2(n_in = n_atom_basis, forces_copy_key = "forces_copy"),
-        "hessian": spk.atomistic.Hessian6(n_in = n_atom_basis, hessian_key = "hessian"),
-        "inv_hessian": spk.atomistic.Hessian6(n_in = n_atom_basis, hessian_key = "inv_hessian"),
-        "original_diagonal": spk.atomistic.HessianDiagonal2(n_in = n_atom_basis, diagonal_key = "original_diagonal"),
-        "original_hessian": spk.atomistic.Hessian8(n_in = n_atom_basis, hessian_key = "original_hessian"),
+        "newton_step_pd": spk.atomistic.NewtonStep(n_in = n_atom_basis, newton_step_key = "newton_step_pd"),
+        "hessian": spk.atomistic.HessianDUUT(n_in = n_atom_basis, hessian_key = "hessian"),
+        "hessian_pd": spk.atomistic.HessianDUUT(n_in = n_atom_basis, hessian_key = "hessian_pd"),
+        "inv_hessian": spk.atomistic.HessianDUUT(n_in = n_atom_basis, hessian_key = "inv_hessian"),
+        "diagonal": spk.atomistic.HessianDiagonal2(n_in = n_atom_basis, diagonal_key = "original_diagonal"),
     }
     
     if continue_last_training:
@@ -109,7 +118,7 @@ def evaluate_model(model, data,
         ):
     # set up converter
     converter = spk.interfaces.AtomsConverter(
-        neighbor_list=trn.ASENeighborList(cutoff=5.0), dtype=torch.float32, device=device
+        neighbor_list=trn.ASENeighborList(cutoff=5.0), dtype=torch.float32, device="cuda" if torch.cuda.is_available() else "cpu"
     )
 
     # random pick
@@ -127,7 +136,7 @@ def evaluate_model(model, data,
 @logger
 def plot_kronecker_products(model, data):
     converter = spk.interfaces.AtomsConverter(
-        neighbor_list=trn.ASENeighborList(cutoff=5.0), dtype=torch.float32, device=device
+        neighbor_list=trn.ASENeighborList(cutoff=5.0), dtype=torch.float32, device="cuda" if torch.cuda.is_available() else "cpu"
     )
     
     for i in range(5):
@@ -159,18 +168,18 @@ def calculate_average_hessian(data):
     # plot_hessian(hessian)
     
 
-@logger
-def calculate_average_newton_step(data):
-    hessian = torch.zeros(9, 3)
+# @logger
+# def calculate_average_newton_step(data):
+#     hessian = torch.zeros(9, 3)
     
-    for i in range(len(data.dataset)):
-        datapoint = data.dataset[i]
-        hessian += datapoint["newton_step"]
-        plot_structure(datapoint)
+#     for i in range(len(data.dataset)):
+#         datapoint = data.dataset[i]
+#         hessian += datapoint["newton_step"]
+#         plot_structure(datapoint)
     
-    hessian = hessian/len(data.dataset)
+#     hessian = hessian/len(data.dataset)
     
-    # plot_hessian(hessian)
+#     # plot_hessian(hessian)
     
 @logger
 def compare_directions(model, data, compare = ["forces", "best_direction", "newton_step"]):
@@ -258,15 +267,7 @@ def main():
     
     # train(data)
     
-    # model_name = "newton_step_model"
-    # model_path = os.getcwd() + "\\maxim\\models\\" + model_name
-    # model = load_model(
-    #     model_path
-    # )
-    
     model = load_model("uut_model")
-
-    # matrix = model.output_modules[0].offset_matrix.detach().cpu().numpy()
 
     # loss = evaluate_model(model, data, 
     #         properties = ["original_hessian"],
