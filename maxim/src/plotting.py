@@ -2,7 +2,7 @@ from enum import Enum, StrEnum
 import sys
 import os
 
-from optimization.OptimizationMetric import EnergyMetric, OptimizationMetricInterface 
+# from optimization.OptimizationMetric import EnergyMetric, OptimizationMetricInterface 
 
 schnetpack_dir = os.getcwd()
 
@@ -305,7 +305,7 @@ def get_x_axis_values(
 def plot_average(
     results: List[List[GradientDescentResult]],
     labels: List[str],
-    metric: OptimizationMetricInterface,
+    metric, #: OptimizationMetricInterface,
     x_axis: OptimizationEvaluationXAxis = OptimizationEvaluationXAxis.Iteration,
     title="Average Energy History Over Time",
 ):
@@ -385,7 +385,7 @@ def plot_average(
 def plot_all_runs(
     results: List[List[GradientDescentResult]],
     labels: List[str],
-    metric: OptimizationMetricInterface,
+    metric, # : OptimizationMetricInterface,
     fix: OptimizationEvaluationAllPlotsFix,
     x_axis: OptimizationEvaluationXAxis = OptimizationEvaluationXAxis.Iteration,
     title="Optimization Results Across Runs",
@@ -443,7 +443,10 @@ def plot_all_runs(
 
     elif fix == OptimizationEvaluationAllPlotsFix.Run:
         for i in range(len(scores)):
-            ax = axes[i // n_cols, i % n_cols]
+            if axes.ndim == 1:
+                ax = axes[i]
+            else:
+                ax = axes[i // n_cols, i % n_cols]
             for j in range(len(scores[i])):
                 ax.plot(x_values[j][i], scores[i][j], alpha=0.7, label=labels[j])
                 ax.set_title(f"Run {i + 1}")

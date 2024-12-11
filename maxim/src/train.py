@@ -34,7 +34,7 @@ def get_training_directory():
 def train(data, continue_last_training = False):
     epochs = 30
     properties_to_train_for = [
-        "newton_step_pd"
+        "diagonal"
     ]
     
     cutoff = 5.
@@ -57,7 +57,7 @@ def train(data, continue_last_training = False):
         "hessian": spk.atomistic.HessianDUUT(n_in = n_atom_basis, hessian_key = "hessian"),
         "hessian_pd": spk.atomistic.HessianDUUT(n_in = n_atom_basis, hessian_key = "hessian_pd"),
         "inv_hessian": spk.atomistic.HessianDUUT(n_in = n_atom_basis, hessian_key = "inv_hessian"),
-        "diagonal": spk.atomistic.HessianDiagonal2(n_in = n_atom_basis, diagonal_key = "original_diagonal"),
+        "diagonal": spk.atomistic.HessianDiagonalL1(n_in = n_atom_basis, diagonal_key = "diagonal"),
     }
     
     if continue_last_training:

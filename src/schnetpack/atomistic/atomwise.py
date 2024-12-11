@@ -590,7 +590,27 @@ class HessianDiagonalL1(nn.Module):
             sactivation=activation,
         )
         
+        self.dnn = nn.Sequential(
+            nn.Linear(3, 10),
+            nn.SiLU(),
+            nn.Linear(10, 3)
+        )
+        
     def forward(self, inputs):
+        # l0 = inputs["scalar_representation"] # 90 x 30
+        # l1 = inputs["vector_representation"] # 90 x 3 x 30
+
+        # l0, l1 = self.outnet((l0, l1)) # 90 x 1, 90 x 3 x 1
+        
+        # scalar = torch.sum(torch.abs(l0))
+        # l1 = torch.abs(l1)
+        # l1 = scalar * l1
+        # #elementwise = l0.unsqueeze(-1) * l1 # 90 x 3 x 1
+        
+        # inputs[self.diagonal_key] = l1.squeeze(-1).flatten() # 10*27
+        # return inputs
+
+        positions = inputs[properties.R] # 90 x 3
         l0 = inputs["scalar_representation"] # 90 x 30
         l1 = inputs["vector_representation"] # 90 x 3 x 30
 
@@ -598,6 +618,18 @@ class HessianDiagonalL1(nn.Module):
         
         l1 = l1.squeeze(-1) # 90 x 3
         
-        inputs[self.diagonal_key] = l1.flatten() # 10*27
+        idx_m = inputs[properties.idx_m]
+        diagonals = []
+        last = -1
+        for i, idx in enumerate(idx_m):
+            # concatted = torch.cat([l1[i], positions[i], l0[i]], dim=0)
+            values = self.dnn(l1[i])
+            if idx == last:
+                diagonals[-1] = torch.cat([diagonals[-1], values], dim=0)
+            else:
+                diagonals.append(values)
+                last = idx
+        diagonals = torch.stack(diagonals, dim=0) # 10 x 27
+        
+        inputs[self.diagonal_key] = diagonals.flatten() # 10*27
         return inputs
-    

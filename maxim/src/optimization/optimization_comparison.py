@@ -44,17 +44,23 @@ def compare():
     
     energy_metric = EnergyMetric(base_model, "basic", data.test_dataset[0][spk.properties.Z])
     closest_minimum_metric = ClosestMinimumMetric(data.test_dataset[0][spk.properties.Z])
-    metric_to_use = closest_minimum_metric
+    force_norm_metric = ForceNormMetric("force_norm")
+    direction_norm_metric = ForceNormMetric("direction_norm")
     
-    hessian_kronecker = load_model("hessian_kronecker", device=device)
-    hessian_duut = load_model("hessian_duut", device=device)
-    hessian_pd_kronecker = load_model("hessian_pd_kronecker", device=device)
-    hessian_pd_duut = load_model("hessian_pd_duut", device=device)
-    inv_hessian_kronecker = load_model("inv_hessian_kronecker", device=device)
-    inv_hessian_duut = load_model("inv_hessian_duut", device=device)
+    # hessian_kronecker = load_model("hessian_kronecker", device=device)
+    # hessian_duut = load_model("hessian_duut", device=device)
+    # hessian_pd_kronecker = load_model("hessian_pd_kronecker", device=device)
+    # hessian_pd_duut = load_model("hessian_pd_duut", device=device)
+    # inv_hessian_kronecker = load_model("inv_hessian_kronecker", device=device)
+    # inv_hessian_duut = load_model("inv_hessian_duut", device=device)
     newton_step_pd_l1 = load_model("newton_step_pd_l1", device=device)
+    diagonal_l0 = load_model("diagonal_l0", device=device)
+    diagonal_l1 = load_model("diagonal_l1", device=device)
     
     strategies = [
+        DiagonalStrategy(base_model, diagonal_l0, GDParams(max_step_size=1e-2), diagonal_key="diagonal", name="Diagonal L0"),
+        DiagonalStrategy(base_model, diagonal_l1, GDParams(max_step_size=1e-2), diagonal_key="diagonal", name="Diagonal L1"),
+        
         ForcesStrategy(base_model, GDParams(max_step_size=5e-4), name="Forces", normalize=False),
         
         # HessianStrategy(base_model, hessian_kronecker, GDParams(max_step_size=5e-2), tau=30, hessian_key="hessian", normalize=False, name="Hessian Kronecker"),
@@ -64,11 +70,11 @@ def compare():
     
         # # InvHessianStrategy(base_model, inv_hessian_kronecker, GDParams(max_step_size=5e-3), normalize=False, name="Inv Hessian Kronecker 5e-3"),    
         # InvHessianStrategy(base_model, inv_hessian_duut, GDParams(max_step_size=5e-3), normalize=False, name="Inv Hessian DUUT 5e-3"),
-        # AutoDiffHessianStrategy(base_model, data.test_dataset[0], gd_params=GDParams(max_step_size=2e-1), tau=35, vectorize=True, name = "AD Hessian 30"),
+        AutoDiffHessianStrategy(base_model, data.test_dataset[0], gd_params=GDParams(max_step_size=2e-1), tau=35, vectorize=True, name = "AD Hessian 30"),
         
-        NewtonStepStrategy(base_model, newton_step_pd_l1, GDParams(max_step_size=1e-2), newton_step_key="newton_step_pd", name="Newton-Step Strategy"), 
+        NewtonStepStrategy(base_model, newton_step_pd_l1, GDParams(step_size=2e-2), newton_step_key="newton_step_pd", name="Newton-Step Strategy"), 
         
-        # DiagonalStrategy(base_model),
+        
         StrategyBase(base_model, GDParams(), "LBFGS"),
     ]
     
@@ -93,7 +99,7 @@ def compare():
     )
 
 
-    N = 10
+    N = 5
     for idx, i in enumerate(random.sample(range(len(data.test_dataset)), N)):
         histories.append([])
         results.append([])
@@ -116,13 +122,14 @@ def compare():
                 dyn.run(fmax=0.001)
                 result = GradientDescentResult(dyn.score_history, dyn.position_history, dyn.time_history)
                 t = dyn.time_history[-1]
+                last_score = result.score_history[-1]["LBFGS metric"]
             else:
                 result, t = gradient_descent(atoms.copy(), 
                                              strategy, 
                                              lineSearchParams=BacktrackingLineSearchParams(active = False)
                                             )
-                
-            print(f"Result {strategy.name}: {result.score_history[-1]} in {len(result.score_history):.4f} steps in {t:.2f} seconds")
+                last_score = result.score_history[-1]["basic"]
+            print(f"Result {strategy.name}: {last_score:.2f} in {len(result.score_history)} steps in {t:.2f} seconds")
             
             histories[-1].append(result.score_history)
             results[-1].append(result)
@@ -130,16 +137,15 @@ def compare():
 
     for result in results:
         for res in result:
-            res.apply_metric(metric_to_use)
+            res.apply_metric(closest_minimum_metric)
             res.apply_metric(energy_metric)
-            
-    force_norm_metric = ForceNormMetric("force_norm")
-    direction_norm_metric = ForceNormMetric("direction_norm")
+        
+    closest_minimum_metric.calculate_energy(results[0][0].position_history[-1])
     labels = [strategy.name for strategy in strategies]
     # plot_average(results, labels, force_norm_metric, OptimizationEvaluationXAxis.Iteration, title = "Force Norm over iteration steps")
     # plot_average(results, labels, direction_norm_metric, OptimizationEvaluationXAxis.Iteration, title = "Direction Norm over iteration steps")
-    plot_average(results, labels, energy_metric, OptimizationEvaluationXAxis.Iteration, title = "Energy over iteration steps")
-    plot_average(results, labels, energy_metric, OptimizationEvaluationXAxis.Time, title = "Energy over time")
+    # plot_average(results, labels, energy_metric, OptimizationEvaluationXAxis.Iteration, title = "Energy over iteration steps")
+    # plot_average(results, labels, energy_metric, OptimizationEvaluationXAxis.Time, title = "Energy over time")
     plot_average(results, labels, closest_minimum_metric, OptimizationEvaluationXAxis.Iteration, title = "Distance to closest Minimum over iteration steps")
     
     plot_all_runs(results, labels, closest_minimum_metric, 

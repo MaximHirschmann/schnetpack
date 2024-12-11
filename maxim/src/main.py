@@ -36,8 +36,8 @@ def train_fn():
     model = load_model()
 
     loss = evaluate_model(model, data, 
-            properties = ["newton_step_pd"],
-            title="Newton Step PD L0 prediction",
+            properties = ["diagonal"],
+            title="Diagonal L1 prediction",
             showDiff=True,
         )
     

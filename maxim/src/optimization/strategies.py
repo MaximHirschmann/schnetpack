@@ -143,6 +143,32 @@ class NewtonStepStrategy(StrategyBase):
             
         return energy, forces, direction
     
+class DiagonalStrategy(StrategyBase):
+    def __init__(self, 
+                 base_model, 
+                 diagonal, 
+                 gd_params = GDParams(), 
+                 diagonal_key: str = "diagonal",
+                 normalize: bool = False,
+                 name = "Diagonal Strategy"
+                 ) -> None:
+        super().__init__(base_model, gd_params, name)
+        self.model = diagonal
+        self.diagonal_key = diagonal_key
+        self.normalize = normalize
+    
+    def get_direction(self, inputs: Dict[str, torch.Tensor]) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        energy, forces = super().prepare_energy_and_forces(inputs)
+        
+        inputs_copy = inputs.copy()
+        model_output = self.model(inputs_copy)
+        diagonal: torch.Tensor = model_output[self.diagonal_key]
+        inv_diagonal: torch.Tensor = 1 / diagonal
+        direction: torch.Tensor = (inv_diagonal * forces.flatten()).reshape(forces.shape)
+        if self.normalize:
+            direction = direction / torch.linalg.norm(direction)
+            
+        return energy, forces, direction
     
 # class AvgHessianStrategy(StrategyBase):
 #     def __init__(self, base_model, line_search: bool = True) -> None:
