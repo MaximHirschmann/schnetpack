@@ -175,7 +175,10 @@ class LBFGS(Optimizer):
                    self.rho, self.r0, self.f0, self.e0, self.task))
         
         self.position_history.append(self.optimizable.get_positions())
-        self.score_history.append({"LBFGS metric": self.optimizable.get_potential_energy()})
+        self.score_history.append({
+            "LBFGS metric": self.optimizable.get_potential_energy(), 
+            "force_norm": np.linalg.norm(self.optimizable.get_forces()),
+            "direction_norm": np.linalg.norm(dr)})
         self.time_history.append(time() - self.time0)
 
     def determine_step(self, dr):

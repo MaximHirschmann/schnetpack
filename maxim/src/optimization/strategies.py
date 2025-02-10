@@ -14,11 +14,10 @@ from Utils import load_model
 import plotting
 from .GradientDescentParameters import GDParams
 
-from typing import Dict, Tuple
+from typing import Callable, Dict, Tuple
 import torch
 import numpy as np
 from ase import Atoms
-
 
 class StrategyBase:
     def __init__(self, 
@@ -133,7 +132,10 @@ class NewtonStepStrategy(StrategyBase):
         self.normalize = normalize
     
     def get_direction(self, inputs: Dict[str, torch.Tensor]) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-        energy, forces = super().prepare_energy_and_forces(inputs)
+        # energy, forces = super().prepare_energy_and_forces(inputs)
+        # we dont need them
+        energy = torch.zeros((1))
+        forces = torch.zeros(inputs[spk.properties.R].shape)
         
         inputs_copy = inputs.copy()
         model_output = self.model(inputs_copy)
@@ -156,7 +158,7 @@ class DiagonalStrategy(StrategyBase):
         self.model = diagonal
         self.diagonal_key = diagonal_key
         self.normalize = normalize
-    
+        
     def get_direction(self, inputs: Dict[str, torch.Tensor]) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         energy, forces = super().prepare_energy_and_forces(inputs)
         
@@ -169,24 +171,6 @@ class DiagonalStrategy(StrategyBase):
             direction = direction / torch.linalg.norm(direction)
             
         return energy, forces, direction
-    
-# class AvgHessianStrategy(StrategyBase):
-#     def __init__(self, base_model, line_search: bool = True) -> None:
-#         super().__init__(base_model, "Avg Hessian", line_search)
-#         self.avg_hessian = torch.tensor(np.load(os.getcwd() + "\\maxim\\data\\avg_hessian.npy"), dtype=torch.float64, device="cpu")
-    
-#     def get_direction(self, inputs: Dict[str, torch.Tensor]) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-#         energy, forces = super().prepare_energy_and_forces(inputs)
-        
-#         hessian = self.avg_hessian
-#         hessian = hessian / torch.linalg.norm(hessian)
-#         newton_step: torch.tensor = torch.linalg.solve(hessian, forces.flatten()).reshape(forces.shape)
-#         norm: torch.tensor = torch.linalg.norm(newton_step)
-#         direction: torch.tensor = newton_step / norm
-#         direction = direction.to(dtype=torch.float32)
-        
-#         return energy, forces, direction
-    
     
 class AutoDiffWrapper(torch.nn.Module):
     def __init__(self, model, inputs_template):
@@ -242,22 +226,3 @@ class AutoDiffHessianStrategy(StrategyBase):
 
         return energy, forces, direction
     
-# class DiagonalStrategy(StrategyBase):
-#     def __init__(self, base_model, line_search: bool = True) -> None:
-#         super().__init__(base_model, "Diagonal", line_search)
-#         self.diagonal_model = load_model("diagonal2", device="cpu")
-    
-#     def get_direction(self, inputs: Dict[str, torch.Tensor]) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-#         energy, forces = super().prepare_energy_and_forces(inputs)
-        
-#         inputs_copy = inputs.copy()
-#         inputs_copy = self.diagonal_model(inputs_copy)
-#         diagonal: torch.Tensor = inputs_copy["original_diagonal"]
-#         inv_diagonal: torch.Tensor = 1 / diagonal
-        
-#         newton_step: torch.Tensor = (inv_diagonal * forces.flatten()).reshape(forces.shape)
-#         norm = torch.linalg.norm(newton_step)
-#         direction: torch.Tensor = newton_step / norm
-#         direction = direction.to(dtype=torch.float32)
-        
-#         return energy, forces, direction

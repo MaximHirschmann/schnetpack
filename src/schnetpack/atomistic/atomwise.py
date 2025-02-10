@@ -298,27 +298,28 @@ class HessianKronecker(nn.Module):
     def __init__(
         self,
         n_in: int,
-        n_hidden: Optional[Union[int, Sequence[int]]] = None,
-        n_layers: int = 2,
-        activation: Callable = F.silu,
         hessian_key: str = properties.hessian,
+        F_2: int = 20 # has to be even
     ):
         super(HessianKronecker, self).__init__()
         self.n_in = n_in
-        self.n_layers = n_layers
-        self.n_hidden = n_hidden
+        self.n_layers = 2
+        self.n_hidden = None
         self.hessian_key = hessian_key
         self.model_outputs = [hessian_key]
     
-        self.n_out = 20 # has to be even
+        activation = F.silu
+        self.F_2 = F_2 
         self.outnet_l1 = spk.nn.build_gated_equivariant_mlp(
             n_in=n_in,
-            n_out=self.n_out,
-            n_hidden=n_hidden,
-            n_layers=n_layers,
+            n_out=self.F_2,
+            n_hidden=None,
+            n_layers=2,
             activation=activation,
             sactivation=activation,
         )
+        
+        self.scalar = nn.Parameter(torch.tensor(100.0))
         
         
     def forward(self, inputs):
@@ -339,9 +340,12 @@ class HessianKronecker(nn.Module):
         
             kronecker_products = [
                 torch.einsum('ik,jl->ijkl', l1_atom[:, :, i], l1_atom[:, :, i+1]).permute(0, 2, 1, 3).reshape(n_atom * 3, n_atom * 3)
-                for i in range(0, self.n_out, 2)
+                for i in range(0, self.F_2, 2)
             ] # (n_out * 3, n_out * 3) x n_out//2
             
+            kronecker_products = [
+                self.scalar * product for product in kronecker_products
+            ]
             hessian = torch.sum(torch.stack(kronecker_products), dim=0) # n_out * 3 x n_out * 3
             
             # make symmetric
@@ -387,9 +391,9 @@ class HessianKronecker(nn.Module):
                 ax.text(-1.5, i * 3 + 1, label, ha="center", va="center", fontsize=10, color="black", fontweight="bold")
 
             # Create a colorbar with controlled size
-            divider = make_axes_locatable(ax)
-            cax = divider.append_axes("right", size="5%", pad=0.05)  # Adjust size and padding
-            plt.colorbar(im, cax=cax, orientation="vertical")
+            # divider = make_axes_locatable(ax)
+            # cax = divider.append_axes("right", size="5%", pad=0.05)  # Adjust size and padding
+            # plt.colorbar(im, cax=cax, orientation="vertical")
 
         l0 = inputs["scalar_representation"] # 90 x 30
         l1 = inputs["vector_representation"] # 90 x 3 x 30
@@ -407,7 +411,7 @@ class HessianKronecker(nn.Module):
 
             kronecker_products = [
                 torch.einsum('ik,jl->ijkl', l1_atom[:, :, i], l1_atom[:, :, i+1]).permute(0, 2, 1, 3).reshape(n_atom * 3, n_atom * 3)
-                for i in range(0, self.n_out, 2)
+                for i in range(0, self.F_2, 2)
             ]
             
             fig, axs = plt.subplots(2, 5, figsize=(15, 15))
@@ -435,18 +439,17 @@ class HessianDUUT(nn.Module):
     def __init__(
         self,
         n_in: int,
-        n_hidden: Optional[Union[int, Sequence[int]]] = None,
-        n_layers: int = 2,
-        activation: Callable = F.silu,
         hessian_key: str = properties.hessian,
+        F_1: int = 6
     ):
         super(HessianDUUT, self).__init__()
-        self.U_features = 6
+        activation = F.silu
+        self.F_1 = F_1
         self.outnet_l1 = spk.nn.build_gated_equivariant_mlp(
             n_in=n_in,
-            n_out=self.U_features,
-            n_hidden=n_hidden,
-            n_layers=n_layers,
+            n_out=self.F_1,
+            n_hidden=None,
+            n_layers=2,
             activation=activation,
             sactivation=activation,
         )
@@ -454,8 +457,8 @@ class HessianDUUT(nn.Module):
         self.outnet_l0 = spk.nn.build_gated_equivariant_mlp(
             n_in=n_in,
             n_out=3,
-            n_hidden=n_hidden,
-            n_layers=n_layers,
+            n_hidden=None,
+            n_layers=2,
             activation=activation,
             sactivation=activation,
         ) 
@@ -480,7 +483,7 @@ class HessianDUUT(nn.Module):
             end_idx = start_idx + n_atom
             
             l0_atom = l0_outnet[start_idx:end_idx].reshape(n_atom * 3) # n_atom * 3
-            l1_atom = l1_outnet[start_idx:end_idx].reshape(n_atom * 3, self.U_features) # (n_atom * 3) x U_features
+            l1_atom = l1_outnet[start_idx:end_idx].reshape(n_atom * 3, self.F_1) # (n_atom * 3) x U_features
             
             # represent hessian as D + UU^T
             D = torch.diag_embed(l0_atom.flatten()) # (n_atom * 3) x (n_atom * 3)

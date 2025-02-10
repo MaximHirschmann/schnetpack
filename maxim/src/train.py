@@ -31,12 +31,20 @@ def get_training_directory():
 
 
 @logger
-def train(data, continue_last_training = False):
-    epochs = 30
-    properties_to_train_for = [
-        "diagonal"
-    ]
-    
+def train(data, 
+          continue_last_training = False, 
+          properties_to_train_for = [
+              "diagonal",
+          ],
+          epochs = 30,
+          model_dir = "",
+          model_name = "best_inference_model",
+          use_duut: bool = True,
+          use_kronecker: bool = False,
+          F_1: int = 6,
+          F_2: int = 20,
+          diag_l0: bool = True
+          ):
     cutoff = 5.
     n_atom_basis = 128
     pairwise_distance = spk.atomistic.PairwiseDistances() # calculates pairwise distances between atoms
@@ -54,11 +62,19 @@ def train(data, continue_last_training = False):
         "polarizability": spk.atomistic.Polarizability(n_in = n_atom_basis, polarizability_key = "polarizability"),
         "newton_step": spk.atomistic.NewtonStep(n_in = n_atom_basis, newton_step_key = "newton_step"),
         "newton_step_pd": spk.atomistic.NewtonStep(n_in = n_atom_basis, newton_step_key = "newton_step_pd"),
-        "hessian": spk.atomistic.HessianDUUT(n_in = n_atom_basis, hessian_key = "hessian"),
-        "hessian_pd": spk.atomistic.HessianDUUT(n_in = n_atom_basis, hessian_key = "hessian_pd"),
-        "inv_hessian": spk.atomistic.HessianDUUT(n_in = n_atom_basis, hessian_key = "inv_hessian"),
-        "diagonal": spk.atomistic.HessianDiagonalL1(n_in = n_atom_basis, diagonal_key = "diagonal"),
     }
+    
+    if use_duut:
+        module_for_property["hessian"] = spk.atomistic.HessianDUUT(n_in = n_atom_basis, hessian_key = "hessian", F_1=F_1)
+        module_for_property["inv_hessian"] = spk.atomistic.HessianDUUT(n_in = n_atom_basis, hessian_key = "inv_hessian", F_1=F_1)
+    elif use_kronecker:
+        module_for_property["hessian"] = spk.atomistic.HessianKronecker(n_in = n_atom_basis, hessian_key = "hessian", F_2=F_2)
+        module_for_property["inv_hessian"] = spk.atomistic.HessianKronecker(n_in = n_atom_basis, hessian_key = "inv_hessian", F_2=F_2)
+    
+    if diag_l0:
+        module_for_property["diagonal"] = spk.atomistic.HessianDiagonalL0(n_in = n_atom_basis, diagonal_key = "diagonal")
+    else:
+        module_for_property["diagonal"] = spk.atomistic.HessianDiagonalL1(n_in = n_atom_basis, diagonal_key = "diagonal")
     
     if continue_last_training:
         model = load_model()
@@ -89,14 +105,18 @@ def train(data, continue_last_training = False):
         optimizer_args={"lr": 2e-3}
     )
 
-    filepath_model = os.path.join(get_training_directory(), "best_inference_model")
-
+    if model_dir == "":
+        model_dir = get_training_directory()
+        
     logger = pl.loggers.TensorBoardLogger(save_dir=get_training_directory())
     callbacks = [
         spk.train.ModelCheckpoint(
-            model_path=filepath_model,
+            model_path=os.path.join(model_dir, model_name),
+            dirpath=model_dir,
+            filename=model_name,
             save_top_k=1,
-            monitor="val_loss"
+            monitor="val_loss",
+            mode="min"
         )
     ]
 

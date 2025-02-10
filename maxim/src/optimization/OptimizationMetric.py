@@ -30,7 +30,7 @@ class OptimizationMetricInterface(ABC):
     
 class EnergyMetric(OptimizationMetricInterface):
     def __init__(self, energy_model, name: str, molecule_numbers, device = "cpu"):
-        super().__init__(name, "Energy in Hartree")
+        super().__init__(name, "Energy in kcal/mol")
         self.energy_model = energy_model
         
         self.converter = spk.interfaces.AtomsConverter(
@@ -51,7 +51,7 @@ class EnergyMetric(OptimizationMetricInterface):
 
 class ClosestMinimumMetric(OptimizationMetricInterface):
     def __init__(self, molecule_numbers):
-        super().__init__("ClosestMinimum", "Distance to closest minimum")
+        super().__init__("ClosestMinimum", "Euclidean distance to closest minimum in Angstrom")
         self.molecule_numbers = molecule_numbers
         
         # Load conformations from .xyz file
@@ -63,7 +63,7 @@ class ClosestMinimumMetric(OptimizationMetricInterface):
         min_distance = float("inf")
         # the atoms (3, 4) may and (5, 6, 7) may be swapped 
         # we need to check all permutations
-        for perm1 in permutations(range(3, 5)):
+        for perm1 in [(3, 4)]: # permutations(range(3, 5)):
             for perm2 in permutations(range(5, 8)):
                 atom_positions2 = atom_position[[0, 1, 2, *perm1, *perm2, 8]]
                 atom = Atoms(
@@ -135,38 +135,66 @@ class ClosestMinimumMetric(OptimizationMetricInterface):
             conformer.positions = self.modify_positions(conformer.positions)
             self.plot_atom(conformer, f"Conformer {i}")
             
-    def plot_atom(self, atom, title = ""):
+    def plot_conformers(self):
+        fig = plt.figure(figsize=(14, 6), dpi=300)
+        fig_positions = [131, 132, 133]
+        titles = ["Local Optimum 1", "Global Optimum", "Local Optimum 2"]
+        
+        for j, i in enumerate([1, 0, 2]):
+            conformer = self.conformers[i]
+            ax = fig.add_subplot(fig_positions[j], projection='3d')
+            self.plot_atom(conformer, ax, titles[j])
+        
+        plt.tight_layout()
+        plt.savefig("conformers.svg", bbox_inches='tight')
+        plt.savefig("conformers.png", dpi=300, bbox_inches='tight')
+        # plt.show()
+
+    def plot_atom(self, atom, ax=None, title=""):
+        from matplotlib.lines import Line2D
         positions = atom.positions
         numbers = atom.numbers
-        
-        colors = {6: "black", 8: "red", 1: "blue"}
-        colors = [colors[n] for n in numbers]
-        charges = {6: "C", 8: "O", 1: "H"}
-        
-        fig = plt.figure()
-        ax = fig.add_subplot(111, projection='3d')
-        
-        # draw the bond between atom (0, 2) and (2, 8)
+
+        # Define visual properties
+        colors = {6: "black", 8: "red", 1: "green"}
+
+        if ax is None:
+            fig = plt.figure()
+            ax = fig.add_subplot(111, projection='3d')
+
+        # Draw bonds
         for i, j in [(0, 2), (2, 8), (0, 1), (0, 3), (0, 4), (1, 7), (1, 5), (1, 6)]:
             x = [positions[i][0], positions[j][0]]
             y = [positions[i][1], positions[j][1]]
             z = [positions[i][2], positions[j][2]]
-            ax.plot(x, y, z, c="gray")
-            
+            ax.plot(x, y, z, c="#A9A9A9", linewidth=5)
+
+        # Plot atoms
         for i, (x, y, z) in enumerate(positions):
-            ax.scatter(x, y, z, c=colors[i], label=i, s=100)
-            ax.text(x, y, z + 0.15, f"{i}", color='black')  # Shift the label slightly above the point
+            ax.scatter(x, y, z, c=colors[numbers[i]], s=400, edgecolor="k")
+
+        # Remove axis ticks and grid
+        ax.set_xticks([])
+        ax.set_yticks([])
+        ax.set_zticks([])
+        ax.grid(False)
+
+        # Set zoomed-in axis limits
+        ax.set_ylim([-1.5, 1.5])
+        ax.set_zlim([-1.5, 1.5])
+        ax.set_xlim([-1.5, 1.5])
+    
+        legend_elements = [
+            Line2D([0], [0], marker='o', color='w', markerfacecolor='black', label='C', markersize=16),
+            Line2D([0], [0], marker='o', color='w', markerfacecolor='red', label='O', markersize=16),
+            Line2D([0], [0], marker='o', color='w', markerfacecolor='green', label='H', markersize=16)
+        ]
+        ax.legend(handles=legend_elements, loc="upper right", fontsize=16)
         
-        # remove the axis
-        # ax.set_xticklabels([])
-        # ax.set_yticklabels([])
-        # ax.set_zticklabels([])
-        
-        
-        if title != "":
-            plt.title(title)
-        plt.show()
-            
+        # Title and view angle
+        ax.set_title(title, fontsize=20, pad=15)
+        ax.view_init(elev=20, azim=20)
+                
     
 class ForceNormMetric(OptimizationMetricInterface):
     def __init__(self, name: str, device = "cpu"):

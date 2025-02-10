@@ -16,6 +16,7 @@ import torch
 from ase import Atoms
 import matplotlib.pyplot as plt
 import random
+import itertools
 
 schnetpack_dir = os.getcwd()
 sys.path.insert(1, schnetpack_dir + "\\src")
@@ -42,41 +43,60 @@ def compare():
     base_model = load_model(best_energy_model, device=device)
     base_model_path = get_model_path(best_energy_model)
     
-    energy_metric = EnergyMetric(base_model, "basic", data.test_dataset[0][spk.properties.Z])
+    energy_metric = EnergyMetric(base_model, "energy_metric", data.test_dataset[0][spk.properties.Z])
     closest_minimum_metric = ClosestMinimumMetric(data.test_dataset[0][spk.properties.Z])
     force_norm_metric = ForceNormMetric("force_norm")
     direction_norm_metric = ForceNormMetric("direction_norm")
     
-    # hessian_kronecker = load_model("hessian_kronecker", device=device)
-    # hessian_duut = load_model("hessian_duut", device=device)
-    # hessian_pd_kronecker = load_model("hessian_pd_kronecker", device=device)
-    # hessian_pd_duut = load_model("hessian_pd_duut", device=device)
-    # inv_hessian_kronecker = load_model("inv_hessian_kronecker", device=device)
-    # inv_hessian_duut = load_model("inv_hessian_duut", device=device)
-    newton_step_pd_l1 = load_model("newton_step_pd_l1", device=device)
-    diagonal_l0 = load_model("diagonal_l0", device=device)
-    diagonal_l1 = load_model("diagonal_l1", device=device)
+    model_dir = os.path.join(os.getenv("LOCALAPPDATA"), "schnetpack", "models")
+
+    hessian_kronecker = load_model(os.path.join(model_dir, "hessian_kronecker_20") , device=device)
+    hessian_duut = load_model(os.path.join(model_dir, "hessian_duut"), device=device)
+    inv_hessian_kronecker = load_model(os.path.join(model_dir, "inv_hessian_kronecker"), device=device)
+    inv_hessian_duut = load_model(os.path.join(model_dir, "inv_hessian_duut"), device=device)
+    diagonal_l0 = load_model(os.path.join(model_dir, "diagonal_l0"), device=device)
+    diagonal_l1 = load_model(os.path.join(model_dir, "diagonal_l1"), device=device)
+    newton_step_pd_l1 = load_model(os.path.join(model_dir, "newton_step"), device=device)
     
     strategies = [
-        DiagonalStrategy(base_model, diagonal_l0, GDParams(max_step_size=1e-2), diagonal_key="diagonal", name="Diagonal L0"),
-        DiagonalStrategy(base_model, diagonal_l1, GDParams(max_step_size=1e-2), diagonal_key="diagonal", name="Diagonal L1"),
+        ForcesStrategy(base_model, GDParams(step_size=0.001, momentum=0.5), name="Forces", normalize=False),
         
-        ForcesStrategy(base_model, GDParams(max_step_size=5e-4), name="Forces", normalize=False),
+        DiagonalStrategy(base_model, diagonal_l0, GDParams(step_size=0.01, momentum=0.9), diagonal_key="diagonal", name="Diagonal L0"),
+        DiagonalStrategy(base_model, diagonal_l1, GDParams(step_size=0.01, momentum=0.9), diagonal_key="diagonal", name="Diagonal L1"),
         
-        # HessianStrategy(base_model, hessian_kronecker, GDParams(max_step_size=5e-2), tau=30, hessian_key="hessian", normalize=False, name="Hessian Kronecker"),
-        # HessianStrategy(base_model, hessian_pd_kronecker, GDParams(max_step_size=5e-2), tau=30, hessian_key="hessian_pd", normalize=False, name="Hessian PD Kronecker"),
-        # HessianStrategy(base_model, hessian_duut, GDParams(max_step_size=5e-2), tau=30, hessian_key="hessian", normalize=False, name="Hessian DUUT"),
-        # HessianStrategy(base_model, hessian_pd_duut, GDParams(max_step_size=5e-2), tau=30, hessian_key="hessian_pd", normalize=False, name="Hessian PD DUUT"),
-    
-        # # InvHessianStrategy(base_model, inv_hessian_kronecker, GDParams(max_step_size=5e-3), normalize=False, name="Inv Hessian Kronecker 5e-3"),    
-        # InvHessianStrategy(base_model, inv_hessian_duut, GDParams(max_step_size=5e-3), normalize=False, name="Inv Hessian DUUT 5e-3"),
-        AutoDiffHessianStrategy(base_model, data.test_dataset[0], gd_params=GDParams(max_step_size=2e-1), tau=35, vectorize=True, name = "AD Hessian 30"),
+        HessianStrategy(base_model, hessian_kronecker, GDParams(step_size=0.02, momentum=0.9), tau=35, hessian_key="hessian", normalize=False, name="Hessian Kronecker"),
+        HessianStrategy(base_model, hessian_duut, GDParams(step_size=0.02, momentum=0.9), tau=35, hessian_key="hessian", normalize=False, name="Hessian $D+UU^T$"),
         
-        NewtonStepStrategy(base_model, newton_step_pd_l1, GDParams(step_size=2e-2), newton_step_key="newton_step_pd", name="Newton-Step Strategy"), 
+        # InvHessianStrategy(base_model, inv_hessian_kronecker, GDParams(step_size=5e-3), normalize=False, name="Inv Hessian Kronecker 5e-3"),    
+        InvHessianStrategy(base_model, inv_hessian_duut, GDParams(step_size=0.005, momentum = 0.5), normalize=False, name="Inv Hessian $D+UU^T$"),
         
+        AutoDiffHessianStrategy(base_model, data.test_dataset[0], gd_params=GDParams(max_step_size=0.1, step_size=0.2, momentum=0.5, momentum_only_good_directions=True), tau=35, vectorize=True, name = "Autodiff Hessian"),
         
-        StrategyBase(base_model, GDParams(), "LBFGS"),
+        NewtonStepStrategy(base_model, newton_step_pd_l1, GDParams(step_size=0.025, momentum=0.65, max_iterations=100), newton_step_key="newton_step_pd", name="Newton step Strategy"),
+        
+        StrategyBase(base_model, GDParams(), "L-BFGS"),
     ]
+    
+    momentum_fix_strategies = [
+        # AutoDiffHessianStrategy(base_model, data.test_dataset[0], gd_params=GDParams(max_step_size=0.1, step_size=0.2, momentum=0.5, momentum_only_good_directions=True), tau=35, vectorize=True, name = "AD Hessian Momentum fix"),
+    ]
+
+    # momentum_and_step_size= list(itertools.product(
+    #         [0, 0.7],
+    #         [0.05],
+    #     )
+    # )
+    # strategies = []
+    # for momentum, step_size in momentum_and_step_size:
+    #     strategies.append(AutoDiffHessianStrategy(
+    #         base_model,
+    #         data.test_dataset[0],
+    #         GDParams(step_size=step_size, momentum=momentum), 
+    #         name=f"AD {momentum} {step_size}",
+    #         vectorize=True,
+    #         tau=35,
+    #         )
+    #     )
     
     # hyperparams = [
     #     {"max_step_size": 5e-4},
@@ -99,8 +119,9 @@ def compare():
     )
 
 
-    N = 5
-    for idx, i in enumerate(random.sample(range(len(data.test_dataset)), N)):
+    # hardest structures: [10, 13, 39, 76]
+    N = 100
+    for idx, i in enumerate(random.sample(range(len(data.test_dataset)), N)): # enumerate(random.sample(range(len(data.test_dataset)), N)):
         histories.append([])
         results.append([])
         structure = data.test_dataset[i]
@@ -115,7 +136,7 @@ def compare():
         print("Structure", idx)
         print(f"Initial energy: {energy_0.item()}")
         for strategy in strategies:
-            if strategy.name == "LBFGS":
+            if "BFGS" in strategy.name:
                 atoms_copy = atoms.copy()
                 atoms_copy.calc = spk_calculator
                 dyn = LBFGS(atoms_copy, logfile=None)
@@ -139,24 +160,25 @@ def compare():
         for res in result:
             res.apply_metric(closest_minimum_metric)
             res.apply_metric(energy_metric)
-        
+
     closest_minimum_metric.calculate_energy(results[0][0].position_history[-1])
     labels = [strategy.name for strategy in strategies]
     # plot_average(results, labels, force_norm_metric, OptimizationEvaluationXAxis.Iteration, title = "Force Norm over iteration steps")
     # plot_average(results, labels, direction_norm_metric, OptimizationEvaluationXAxis.Iteration, title = "Direction Norm over iteration steps")
-    # plot_average(results, labels, energy_metric, OptimizationEvaluationXAxis.Iteration, title = "Energy over iteration steps")
-    # plot_average(results, labels, energy_metric, OptimizationEvaluationXAxis.Time, title = "Energy over time")
-    plot_average(results, labels, closest_minimum_metric, OptimizationEvaluationXAxis.Iteration, title = "Distance to closest Minimum over iteration steps")
+    plot_average(results, labels, energy_metric, OptimizationEvaluationXAxis.Iteration, title = "Convergence of Energy Minimizing Gradient Descent over Iteration")
+    plot_average(results, labels, energy_metric, OptimizationEvaluationXAxis.Time, title = "Convergence of Energy Minimizing Gradient Descent over Time")
+    plot_average(results, labels, closest_minimum_metric, OptimizationEvaluationXAxis.Iteration, title = "Convergence of Energy Minimizing Gradient Descent over Iteration")
+    plot_average(results, labels, closest_minimum_metric, OptimizationEvaluationXAxis.Time, title = "Convergence of Energy Minimizing Gradient Descent over Time")
     
-    plot_all_runs(results, labels, closest_minimum_metric, 
-                  OptimizationEvaluationAllPlotsFix.Run, 
-                  OptimizationEvaluationXAxis.Iteration, 
-                  title = "Distance to closest Minimum over iteration steps")
+    # plot_all_runs(results, labels, closest_minimum_metric, 
+    #               OptimizationEvaluationAllPlotsFix.Run, 
+    #               OptimizationEvaluationXAxis.Iteration, 
+    #               title = "Distance to closest Minimum over iteration steps")
     
-    plot_all_runs(results, labels, energy_metric,
-                  OptimizationEvaluationAllPlotsFix.Run,
-                  OptimizationEvaluationXAxis.Iteration,
-                  title = "Energy over iteration steps")
+    # plot_all_runs(results, labels, energy_metric,
+    #               OptimizationEvaluationAllPlotsFix.Run,
+    #               OptimizationEvaluationXAxis.Iteration,
+    #               title = "Energy over iteration steps")
     
     # atom_numbers = [atom_n.item() for atom_n in data.test_dataset[0][spk.properties.Z]]
     # plot_atom(closest_minimum_metric.conformers[0].positions, atom_numbers, title = "true minimum 0")

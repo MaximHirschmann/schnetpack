@@ -55,7 +55,7 @@ def plot_hessian(hessian):
     
     plt.show()
     
-def plot_hessian2(hessian, ax=None, colorbar=True, vmin=None, vmax = None):
+def plot_hessian2(hessian, ax=None, colorbar=True, vmin=None, vmax = None, text_fontsize=12, colorbar_fontsize=10, use_small_xyz_ticks=True):
     # Assumes the hessian is of shape 27 x 27
     if type(hessian) is not np.ndarray:
         hessian = hessian.cpu().detach().numpy()
@@ -63,15 +63,16 @@ def plot_hessian2(hessian, ax=None, colorbar=True, vmin=None, vmax = None):
     if ax is None:
         fig, ax = plt.subplots()
 
-    # Plot the hessian
+    # Plot the Hessian
     if vmin is None or vmax is None:
         cax = ax.imshow(hessian, cmap="viridis")
     else:
         cax = ax.imshow(hessian, cmap="viridis", vmin=vmin, vmax=vmax)
     
-    # Optionally add a colorbar (assumes plt.colorbar if outside of subplot control)
+    # Optionally add a colorbar
     if colorbar:
-        plt.colorbar(cax, ax=ax, fraction=0.046, pad=0.1)
+        cbar = plt.colorbar(cax, ax=ax, fraction=0.046, pad=0.1)
+        cbar.ax.tick_params(labelsize=colorbar_fontsize)  # Set font size for the colorbar
 
     # Adding fine grid lines every 3 cells
     ax.set_xticks(np.arange(-0.5, 27, 3), minor=True)
@@ -85,15 +86,19 @@ def plot_hessian2(hessian, ax=None, colorbar=True, vmin=None, vmax = None):
     main_labels = [r"$C_1$", r"$C_2$", r"$O_{C1}$", r"$H_{C1}$", r"$H_{C1}$", r"$H_{C2}$", r"$H_{C2}$", r"$H_{C2}$", r"$H_{O}$"]
     
     # Set sublabels for x-axis and y-axis
-    ax.set_xticks(np.arange(27))
-    ax.set_xticklabels(tick_labels)
-    ax.set_yticks(np.arange(27))
-    ax.set_yticklabels(tick_labels)
+    if use_small_xyz_ticks:
+        ax.set_xticks(np.arange(27))
+        ax.set_xticklabels(tick_labels, fontsize=text_fontsize)
+        ax.set_yticks(np.arange(27))
+        ax.set_yticklabels(tick_labels, fontsize=text_fontsize)
+    else:
+        ax.set_xticks([])
+        ax.set_yticks([])
 
     # Set main labels every 3rd column and row
     for i, label in enumerate(main_labels):
-        ax.text(i * 3 + 1, -1.5, label, ha='center', va='center', fontsize=12, color='black', fontweight='bold', transform=ax.transData)
-        ax.text(27, i * 3 + 1, label, ha='left', va='center', fontsize=12, color='black', fontweight='bold', transform=ax.transData)
+        ax.text(i * 3 + 1, -1.5, label, ha='center', va='center', fontsize=text_fontsize, color='black', fontweight='bold', transform=ax.transData)
+        ax.text(27, i * 3 + 1, label, ha='left', va='center', fontsize=text_fontsize, color='black', fontweight='bold', transform=ax.transData)
 
 def plot(structure, 
          results, 
@@ -301,13 +306,13 @@ def get_x_axis_values(
     else:
         raise ValueError(f"Unsupported x_axis value: {x_axis}")
 
-
 def plot_average(
     results: List[List[GradientDescentResult]],
     labels: List[str],
     metric, #: OptimizationMetricInterface,
     x_axis: OptimizationEvaluationXAxis = OptimizationEvaluationXAxis.Iteration,
-    title="Average Energy History Over Time",
+    title="Convergence of Energy Minimization over Iterations",
+    font_size: int = 18,  # New parameter for font size
 ):
     # Get x-axis values dynamically
     x_values = get_x_axis_values(results, x_axis)
@@ -349,37 +354,48 @@ def plot_average(
                     closest_idx = np.argmin(np.abs(np.array(run_x_values) - time))
                     averages[i] += run_scores[closest_idx]
                     counts[i] += 1
-                    
+
             averages /= counts
             average_scores.append(averages)
             average_x_values.append(even_time)
         
-    # Initialize plot
-    plt.figure(figsize=(10, 6))
+    # Initialize plot with improved size
+    plt.figure(figsize=(12, 7))  # Larger figure for clarity
     
-    # Plot averages and prepare legend handles
+    # Plot averages with improved styling
     lines = []
     for i, (label, averages, x_vals) in enumerate(zip(labels, average_scores, average_x_values)):
-        line, = plt.plot(x_vals, averages, label=label, linewidth=2)
+        line, = plt.plot(x_vals, averages, label=label, 
+                         linewidth=2.5, linestyle='-', marker=None)
         lines.append(Line2D([0], [0], color=line.get_color(), linewidth=3))
     
-    # Plot aesthetics
-    plt.xlabel("Time (s)" if x_axis == OptimizationEvaluationXAxis.Time else "Iteration Steps")
-    max_x = None
+    # Custom x and y limits
     if x_axis == OptimizationEvaluationXAxis.Iteration:
-        max_x = 300
+        plt.xlim(0, 50)  # Adjust x-axis for iterations
     elif x_axis == OptimizationEvaluationXAxis.Time:
-        max_x = 3
-    plt.xlim([0, min(max(len(x) for x in average_x_values), max_x)])  # Custom range for x-axis
-    plt.ylabel(metric.y_axis)
-    # average_after_10_steps = np.mean([avg[10] for avg in average_scores], axis=0)
-    if metric.name == "basic":
-        plt.ylim([-97095, -97070])
+        plt.xlim(0, 2.5)   # Adjust x-axis for time
+    if metric.y_axis == "Distance to closest minimum":
+        plt.ylim(bottom=0)  # Ensure the y-axis starts at zero
+    elif metric.y_axis == "Energy in kcal/mol":
+        plt.ylim([-97090.5, -97082])
+        
+    # Aesthetic improvements
+    plt.xlabel("Time (s)" if x_axis == OptimizationEvaluationXAxis.Time else "Number of Iterations", fontsize=font_size)
+    plt.ylabel(metric.y_axis, fontsize=16)
+
+    # Update tick label font sizes
+    plt.tick_params(axis='x', labelsize=font_size)
+    plt.tick_params(axis='y', labelsize=font_size)
+
+    plt.grid(True, which="both", linestyle='--', linewidth=0.5, alpha=0.7)  # Improved grid
     
-    plt.title(title)
-    plt.grid(True, linestyle='--', alpha=0.7)
-    plt.legend(handles=lines, labels=labels, loc='best')
+    # Place legend outside the plot
+    plt.legend(handles=lines, labels=labels, loc='center left', 
+               bbox_to_anchor=(1, 0.5), frameon=False, fontsize=font_size)
+    
+    # Save and display
     plt.tight_layout()
+    plt.savefig(f"Comparison_pictures/{metric.name}_average_{x_axis.value}.svg", bbox_inches='tight')
     plt.show()
     
 def plot_all_runs(
@@ -424,7 +440,7 @@ def plot_all_runs(
 
     max_x = None
     if x_axis == OptimizationEvaluationXAxis.Iteration:
-        max_x = 200
+        max_x = 100
     elif x_axis == OptimizationEvaluationXAxis.Time:
         max_x = 2 # seconds
         
